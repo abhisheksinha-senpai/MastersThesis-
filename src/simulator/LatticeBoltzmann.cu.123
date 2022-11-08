@@ -1,0 +1,1004 @@
+#include "LatticeBoltzmann.cuh"
+
+__device__ float viscosity;
+__device__ float Re;
+__device__ float tau_no_dim;
+__device__ float delT=1.0f;
+__device__ float cs_inv_sq = 3.0f;
+__device__ float Ct;
+
+__device__ float velocity_weights[3] = {1.0f/3.0f, 1.0f/18.0f, 1.0f/36.0f};
+
+__device__ int lb_sim_domain[3];
+
+__device__ float max_ux = -9999.0f;
+__device__ float max_uy = -9999.0f;
+__device__ float max_uz = -9999.0f;
+__device__ float max_rho = -9999.0f;
+__device__ float max_Fx = -9999.0f;
+__device__ float max_Fy = -9999.0f;
+__device__ float max_Fz = -9999.0f;
+
+__device__ static float atomicMax(float* address, float val)
+{
+    int* address_as_i = (int*) address;
+    int old = *address_as_i, assumed;
+    do {
+        assumed = old;
+        old = ::atomicCAS(address_as_i, assumed,
+            __float_as_int(::fmaxf(val, __int_as_float(assumed))));
+    } while (assumed != old);
+    return __int_as_float(old);
+}
+
+__global__ void LB_compute_local_params(float *f1_gpu, float *source_term_gpu,
+                                        float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    float ft0;
+    float ft1, ft2, ft3, ft4, ft5, ft6, ft7, ft8, ft9;
+    float ft10, ft11, ft12, ft13, ft14, ft15, ft16, ft17, ft18;
+
+    float F0;
+    float F1, F2, F3, F4, F5, F6, F7, F8, F9;
+    float F10, F11, F12, F13, F14, F15, F16, F17, F18;
+
+    float lat_rho, rhoinv, lat_ux, lat_uy, lat_uz;
+
+    ft0 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain)];
+    ft1 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)];
+    ft2 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)];
+    ft3 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 3, lb_sim_domain)];
+    ft4 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 4, lb_sim_domain)];
+    ft5 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain)];
+    ft6 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain)];
+    ft7 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)];
+    ft8 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)];
+    ft9 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)];
+    ft10 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)];
+    ft11 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)];
+    ft12 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)];
+    ft13 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)];
+    ft14 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)];
+    ft15 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)];
+    ft16 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)];
+    ft17 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)];
+    ft18 = f1_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)];
+
+    float tau_bar = tau_no_dim + delT/2.0f;
+    float coef = (1-delT/(2.0f*tau_bar));
+    float coef_inv = 1.0f/coef;
+    F0 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain)];
+    F1 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)];
+    F2 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)];
+    F3 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 3, lb_sim_domain)];
+    F4 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 4, lb_sim_domain)];
+    F5 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain)];
+    F6 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain)];
+    F7 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)];
+    F8 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)];
+    F9 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)];
+    F10 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)];
+    F11 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)];
+    F12 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)];
+    F13 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)];
+    F14 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)];
+    F15 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)];
+    F16 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)];
+    F17 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)];
+    F18 = coef_inv*source_term_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)];
+
+    coef = delT/2.0f;
+    lat_rho = ft0+ft1+ft2+ft3+ft4+ft5+ft6+ft7+ft8+ft9+ft10+ft11+ft12+ft13+ft14+ft15+ft16+ft17+ft18+coef*(F0+F1+F2+F3+F4+F5+F6+F7+F8+F9+F10+F11+F12+F13+F14+F15+F16+F17+F18);
+    rhoinv = (lat_rho<=0.0f)?0.0f:1.0f/(lat_rho);
+
+    int coord = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
+
+    lat_ux = rhoinv*(ft1+ft7+ft9+ft13+ft15-(ft2+ft8+ft10+ft14+ft16)) + 0.5f*rhoinv*delT*(F1+F7+F9+F13+F15-(F2+F8+F10+F14+F16));
+    lat_uy = rhoinv*(ft3+ft7+ft11+ft14+ft17-(ft4+ft8+ft12+ft13+ft18)) + 0.5f*rhoinv*delT*(F3+F7+F11+F14+F17-(F4+F8+F12+F13+F18));
+    lat_uz = rhoinv*(ft5+ft9+ft11+ft16+ft18-(ft6+ft10+ft12+ft15+ft17)) + 0.5f*rhoinv*delT*(F5+F9+F11+F16+F18-(F6+F10+F12+F15+F17));
+    
+    rho_gpu[coord] = lat_rho;
+    ux_gpu[coord] = lat_ux;
+    uy_gpu[coord] = lat_uy;
+    uz_gpu[coord] = lat_uz;
+}
+
+__global__ void LB_compute_equi_distribution(float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu,
+                                             float* feq_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    float w0 = velocity_weights[0], weight__aligend_axis = velocity_weights[1], weight__off_axis = velocity_weights[2];
+    float lat_rho, lat_ux, lat_uy, lat_uz;
+
+    int coord = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
+    lat_rho =  rho_gpu[coord];
+    lat_ux = ux_gpu[coord];
+    lat_uy = uy_gpu[coord];
+    lat_uz = uz_gpu[coord];
+
+    int cx,cy,cz;
+    float u_dot_c, u_dot_u = lat_ux*lat_ux + lat_uy * lat_uy + lat_uz * lat_uz;
+    
+    cx = 0,cy = 0,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain)] = w0*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 1,cy = 0,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)] = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = -1,cy = 0,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)] = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 0,cy = 1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 3, lb_sim_domain)] = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 0,cy = -1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 4, lb_sim_domain)] = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 0,cy = 0,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain)] = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 0,cy = 0,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain)] = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 1,cy = 1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = -1,cy = -1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 1,cy = 0,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = -1,cy = 0,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 0,cy = 1,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 0,cy = -1,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 1,cy = -1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = -1,cy = 1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 1,cy = 0,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = -1,cy = 0,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 0,cy = 1,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+
+    cx = 0,cy = -1,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    feq_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)] = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+}
+
+__global__ void LB_add_gravity(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, float *rho_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    float domain_size = 2.0f;
+    float Cl = domain_size/max(max(lb_sim_domain[0], lb_sim_domain[1]), lb_sim_domain[2]);
+    int sidx = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
+    atomicAdd(&Fy_gpu[sidx], -1.0f*rho_gpu[sidx] * 9.8*Ct*Ct/Cl);
+}
+
+__global__ void LB_compute_source_term(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, float *source_term_gpu,
+                                       float *ux_gpu, float *uy_gpu, float *uz_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    float w0 = velocity_weights[0], weight__aligend_axis = velocity_weights[1], weight__off_axis = velocity_weights[2];
+    float lat_ux = 0.0f, lat_uy = 0.0f, lat_uz = 0.0f;
+    int cx = 0,cy = 0,cz = 0;
+    float u_dot_c = 0.0f, u_dot_F = 0.0f, ci_dot_F = 0.0f;
+
+    int coord = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
+
+    lat_ux = ux_gpu[coord];
+    lat_uy = uy_gpu[coord];
+    lat_uz = uz_gpu[coord];
+
+    float Fx = Fx_gpu[coord];
+    float Fy = Fy_gpu[coord];
+    float Fz = Fz_gpu[coord];
+    float tau_bar = tau_no_dim+delT/2.0f;
+
+    u_dot_F = lat_ux*Fx + lat_uy*Fy + lat_uz*Fz;
+
+    cx = 0,cy = 0,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    float quant = (1.0f-0.5f*delT/tau_bar)*w0*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain)] = quant;
+
+    cx = 1,cy = 0,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__aligend_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)] = quant;
+    
+    cx = -1,cy = 0,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__aligend_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)] = quant;
+    
+    cx = 0,cy = 1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__aligend_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 3, lb_sim_domain)] = quant;
+
+    cx = 0,cy = -1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__aligend_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 4, lb_sim_domain)] = quant;
+    
+    cx = 0,cy = 0,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__aligend_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain)] = quant;
+
+    cx = 0,cy = 0,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__aligend_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain)] = quant;
+    
+    cx = 1,cy = 1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)] = quant;
+    
+    cx = -1,cy = -1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)] = quant;
+    
+    cx = 1,cy = 0,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)] = quant;
+    
+    cx = -1,cy = 0,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)] = quant;
+
+    cx = 0,cy = 1,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)] = quant;
+
+    cx = 0,cy = -1,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)] = quant;
+
+    cx = 1,cy = -1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)] = quant;
+
+    cx = -1,cy = 1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)] = quant;
+
+    cx = 1,cy = 0,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)] = quant;
+
+    cx = -1,cy = 0,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)] = quant;
+
+    cx = 0,cy = 1,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)] = quant;
+
+    cx = 0,cy = -1,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    ci_dot_F = cx*Fx + cy*Fy + cz*Fz;
+    quant = (1.0f-0.5f*delT/tau_bar)*weight__off_axis*cs_inv_sq*((ci_dot_F - u_dot_F) + cs_inv_sq*(u_dot_c * ci_dot_F));
+    source_term_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)] = quant;
+}
+
+__global__ void LB_equi_Initialization( float *f1_gpu, float *feq_gpu, 
+                                        float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    float w0 = velocity_weights[0], weight__aligend_axis = velocity_weights[1], weight__off_axis = velocity_weights[2];
+
+    unsigned int sidx = gpu_scalar_index(idx,idy,idz, lb_sim_domain);
+    float lat_rho = rho_gpu[sidx];
+    float rho_inv = (lat_rho <=0.0)?0.0f:1.0f/lat_rho;
+    float lat_ux  = ux_gpu[sidx];
+    float lat_uy  = uy_gpu[sidx];
+    float lat_uz  = uz_gpu[sidx];
+
+    int cx,cy,cz, coord;
+    float u_dot_c, u_dot_u = lat_ux*lat_ux + lat_uy * lat_uy + lat_uz * lat_uz, quant;
+    
+    cx = 0,cy = 0,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain);
+    quant = w0*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 1,cy = 0,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain);
+    quant = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = -1,cy = 0,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain);
+    quant = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 0,cy = 1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 3, lb_sim_domain);
+    quant = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 0,cy = -1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 4, lb_sim_domain);
+    quant = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 0,cy = 0,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain);
+    quant = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 0,cy = 0,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain);
+    quant = weight__aligend_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 1,cy = 1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = -1,cy = -1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 1,cy = 0,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = -1,cy = 0,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 0,cy = 1,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 0,cy = -1,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 1,cy = -1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = -1,cy = 1,cz = 0;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 1,cy = 0,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = -1,cy = 0,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 0,cy = 1,cz = -1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+
+    cx = 0,cy = -1,cz = 1;
+    u_dot_c= cx*lat_ux + cy*lat_uy + cz* lat_uz;
+    coord = gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain);
+    quant = weight__off_axis*lat_rho*(1.0f + cs_inv_sq*u_dot_c + 0.5*u_dot_c*u_dot_c*cs_inv_sq*cs_inv_sq - 0.5*u_dot_u*cs_inv_sq);
+    feq_gpu[coord] = quant;
+    f1_gpu[coord] = quant;
+}
+
+__global__ void LB_clear_Forces(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    int coord = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
+    Fx_gpu[coord] = 0.0f;
+    Fy_gpu[coord] = 0.0f;
+    Fz_gpu[coord] = 0.0f;
+}
+
+__global__ void LB_collide(float *f1_gpu, float* f2_gpu, float *feq_gpu, float *source_term_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    int coord;
+    float omega, source;
+    float tau_bar = tau_no_dim +delT/2.0f;
+    float tau_inv = -(1.0f/tau_bar);
+
+    coord = gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 3, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 4, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+
+    coord = gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain);
+    omega = tau_inv*(f1_gpu[coord] - feq_gpu[coord]);
+    source = source_term_gpu[coord];
+    f2_gpu[coord] = f1_gpu[coord]+(omega + source)*delT;
+}
+
+__global__ void check_max_params()
+{
+    printf("Max values of params = %f %f %f %f\t%f %f %f\n", max_ux, max_uy, max_uz, max_rho, max_Fx, max_Fy, max_Fz);
+}
+
+__global__ void update_max_params(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu,
+                                  float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    int coord = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
+    atomicMax(&max_ux, abs(ux_gpu[coord]));
+    atomicMax(&max_uy, abs(uy_gpu[coord]));
+    atomicMax(&max_uz, abs(uz_gpu[coord]));
+    atomicMax(&max_rho, abs(rho_gpu[coord]));
+    atomicMax(&max_Fx, abs(Fx_gpu[coord]));
+    atomicMax(&max_Fy, abs(Fy_gpu[coord]));
+    atomicMax(&max_Fz, abs(Fz_gpu[coord]));
+}
+
+__global__ void LB_stream(float *f1_gpu, float *f2_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+    int NX = lb_sim_domain[0];
+    int NY = lb_sim_domain[1];
+    int NZ = lb_sim_domain[2];
+
+    f1_gpu[gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((-1+NX+idx)%NX, (0+NY+idy)%NY, (0+NZ+idz)%NZ, 1, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((1+NX+idx)%NX, (0+NY+idy)%NY, (0+NZ+idz)%NZ, 2, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((0+NX+idx)%NX, (-1+NY+idy)%NY, (0+NZ+idz)%NZ, 3, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 3, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((0+NX+idx)%NX, (1+NY+idy)%NY, (0+NZ+idz)%NZ, 4, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 4, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((0+NX+idx)%NX, (0+NY+idy)%NY, (-1+NZ+idz)%NZ, 5, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((0+NX+idx)%NX, (0+NY+idy)%NY, (1+NZ+idz)%NZ, 6, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain)];
+
+    f1_gpu[gpu_fieldn_index((-1+NX+idx)%NX, (-1+NY+idy)%NY, (0+NZ+idz)%NZ, 7, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((1+NX+idx)%NX, (1+NY+idy)%NY, (0+NZ+idz)%NZ, 8, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((0+NX+idx)%NX, (-1+NY+idy)%NY, (-1+NZ+idz)%NZ, 9, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((0+NX+idx)%NX, (1+NY+idy)%NY, (1+NZ+idz)%NZ, 10, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((-1+NX+idx)%NX, (0+NY+idy)%NY, (-1+NZ+idz)%NZ, 11, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((1+NX+idx)%NX, (0+NY+idy)%NY, (1+NZ+idz)%NZ, 12, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)];
+
+    f1_gpu[gpu_fieldn_index((-1+NX+idx)%NX, (1+NY+idy)%NY, (0+NZ+idz)%NZ, 13, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((1+NX+idx)%NX, (-1+NY+idy)%NY, (0+NZ+idz)%NZ, 14, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((-1+NX+idx)%NX, (0+NY+idy)%NY, (1+NZ+idz)%NZ, 15, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((1+NX+idx)%NX, (0+NY+idy)%NY, (-1+NZ+idz)%NZ, 16, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((0+NX+idx)%NX, (-1+NY+idy)%NY, (1+NZ+idz)%NZ, 17, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)];
+    f1_gpu[gpu_fieldn_index((0+NX+idx)%NX, (1+NY+idy)%NY, (-1+NZ+idz)%NZ, 18, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)];
+}
+
+__host__ void LB_compute_sim_param(int NX, int NY, int NZ, float viscosity, float Re)
+{
+    float domain_size = 2.0;
+    float cs_inv_sq = 3.0f;
+    float cs = 1.0f/sqrt(cs_inv_sq);
+    float lat_l_no_dim = max(max(NX, NY), NZ);
+    float delX = domain_size/lat_l_no_dim;
+
+    float non_dim_tau = 0.75f;
+    float deltaT = (1.0f/3.0f)*(non_dim_tau-0.5)*((delX*delX)/viscosity);
+    checkCudaErrors(cudaMemcpyToSymbol(tau_no_dim, &non_dim_tau, sizeof(float), 0, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyToSymbol(Ct, &deltaT, sizeof(float), 0, cudaMemcpyHostToDevice));
+    printf("..................Simulation parameters are as follows.........................\n");
+    printf("Lattice Reynolds number : %f\n", Re);
+    printf("non dimentional del T :%f\n", deltaT);
+    printf("non dimentional tau :%f\n", non_dim_tau);
+    printf("non dimentional gravity %f\n",   9.8*deltaT*deltaT/delX);
+    printf("Velocity conversion factor %f\n", delX/deltaT);
+    printf("Ratio of tau to delT: %f\n", non_dim_tau/deltaT);
+    printf("...............................................................................\n");
+}
+
+__global__ void LB_enforce_boundary_wall(float *f1_gpu, float *f2_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    int NX = lb_sim_domain[0];
+    int NY = lb_sim_domain[1];
+    int NZ = lb_sim_domain[2];
+
+    if(idy==0)
+    {
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 4, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 3, lb_sim_domain)];
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)];
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)];
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)];
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)];
+        if(idz == NZ-1)
+        {
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)];
+            if(idx == 0)
+            {
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)];
+            }
+            else if(idx == NX-1)
+            {
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)];
+            }
+        }
+        else if(idz == 0)
+        {
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)];
+
+            if(idx == 0)
+            {
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)];
+            }
+            else if(idx == NX-1)
+            {
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)];
+            }
+        }
+    }
+    else if(idy == NY-2)
+    {
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 3, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 4, lb_sim_domain)];
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)];
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)];
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)];
+        f1_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)];
+         if(idz == NZ-1)
+        {
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)];
+            if(idx == 0)
+            {
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)];
+            }
+            else if(idx == NX-1)
+            {
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)];
+            }
+        }
+        else if(idz == 0)
+        {
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 6, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 5, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 17, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 18, lb_sim_domain)];
+            f1_gpu[gpu_fieldn_index(idx, idy, idz, 12, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 11, lb_sim_domain)];
+
+            if(idx == 0)
+            {
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)];
+            }
+            else if(idx == NX-1)
+            {
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 1, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 2, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 15, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 16, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 7, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 8, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 9, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 10, lb_sim_domain)];
+                f1_gpu[gpu_fieldn_index(idx, idy, idz, 13, lb_sim_domain)] = f2_gpu[gpu_fieldn_index(idx, idy, idz, 14, lb_sim_domain)];
+            }
+        }
+    }
+}
+
+__host__ void LB_init(int NX, int NY, int NZ, float Reynolds, float mu,
+                      float **f1_gpu, float **f2_gpu, float **feq_gpu, float **source_term_gpu, 
+                      float **rho_gpu, float **ux_gpu, float **uy_gpu, float **uz_gpu, 
+                      float **rho, float **ux, float **uy, float **uz, 
+                      cudaStream_t *streams)
+{
+    checkCudaErrors(cudaDeviceSynchronize());
+    float total_size_allocated = 0;
+    float bytesPerGiB = 1024.0f*1024.0f*1024.0f;
+    int total_lattice_points = NX*NY*NZ;
+    unsigned int mem_size_ndir  = sizeof(float)*total_lattice_points*(19);
+    unsigned int mem_size_scalar = sizeof(float)*total_lattice_points;
+    checkCudaErrors(cudaMalloc((void**)f1_gpu, mem_size_ndir));
+    total_size_allocated += mem_size_ndir;
+    checkCudaErrors(cudaMalloc((void**)f2_gpu, mem_size_ndir));
+    total_size_allocated += mem_size_ndir;
+    checkCudaErrors(cudaMalloc((void**)feq_gpu, mem_size_ndir));
+    total_size_allocated += mem_size_ndir;
+    checkCudaErrors(cudaMalloc((void**)source_term_gpu, mem_size_ndir));
+    total_size_allocated += mem_size_ndir;
+    checkCudaErrors(cudaMalloc((void**)rho_gpu,mem_size_scalar));
+    total_size_allocated += mem_size_scalar;
+    checkCudaErrors(cudaMalloc((void**)ux_gpu,mem_size_scalar));
+    total_size_allocated += mem_size_scalar;
+    checkCudaErrors(cudaMalloc((void**)uy_gpu,mem_size_scalar));
+    total_size_allocated += mem_size_scalar;
+    checkCudaErrors(cudaMalloc((void**)uz_gpu,mem_size_scalar));
+    total_size_allocated += mem_size_scalar;
+
+    float Reynold_number = Reynolds;
+    float vis = mu;
+    int nu = NX;
+    int nv = NY;
+    int nw = NZ;
+    checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nu, sizeof(int), 0, cudaMemcpyHostToDevice, streams[0]));
+    checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nv, sizeof(int), sizeof(int), cudaMemcpyHostToDevice, streams[1]));
+    checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nw, sizeof(int), 2*sizeof(int), cudaMemcpyHostToDevice, streams[2]));
+
+    checkCudaErrors(cudaMemcpyToSymbolAsync(Re, &Reynold_number, sizeof(float), 0, cudaMemcpyHostToDevice, streams[3]));
+    checkCudaErrors(cudaMemcpyToSymbolAsync(viscosity, &vis, sizeof(float), 0, cudaMemcpyHostToDevice, streams[4]));
+    checkCudaErrors(cudaDeviceSynchronize());
+    checkCudaErrors(cudaMemcpyAsync((void*)(*rho_gpu), (*rho), mem_size_scalar,  cudaMemcpyHostToDevice, streams[5]));
+    checkCudaErrors(cudaMemcpyAsync((void*)(*ux_gpu), (*ux), mem_size_scalar,  cudaMemcpyHostToDevice, streams[6]));
+    checkCudaErrors(cudaMemcpyAsync((void*)(*uy_gpu), (*uy), mem_size_scalar,  cudaMemcpyHostToDevice, streams[7]));
+    checkCudaErrors(cudaMemcpyAsync((void*)(*uz_gpu), (*uz), mem_size_scalar,  cudaMemcpyHostToDevice, streams[8]));
+
+    checkCudaErrors(cudaMemsetAsync ((void*)(*f1_gpu), 0, 19*total_lattice_points*sizeof(float), streams[9]));
+    checkCudaErrors(cudaMemsetAsync ((void*)(*f2_gpu), 0, 19*total_lattice_points*sizeof(float), streams[10]));
+    checkCudaErrors(cudaMemsetAsync ((void*)(*feq_gpu), 0, 19*total_lattice_points*sizeof(float), streams[11]));
+    checkCudaErrors(cudaMemsetAsync ((void*)(*source_term_gpu), 0, 19*total_lattice_points*sizeof(float), streams[12]));
+    cudaDeviceSynchronize();
+    printf("Total memory allocated in GPU: %f\n", total_size_allocated/bytesPerGiB);
+
+    dim3 nthx(nThreads.x, nThreads.y, nThreads.z);
+    dim3 ngrid(NX/nthx.x, NY/nthx.y, NZ/nthx.z);
+    LB_compute_sim_param(NX, NY, NZ, mu, Reynolds);
+    cudaDeviceSynchronize();
+    LB_equi_Initialization<<<ngrid, nthx>>>(*f1_gpu, *feq_gpu, 
+                                            *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu);
+    cudaDeviceSynchronize();
+}
+
+__host__ void LB_cleanup(float *f1_gpu, float* f2_gpu, float *feq_gpu, float *source_term_gpu, 
+                         float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu)
+{
+    cudaFree(f1_gpu);
+    cudaFree(f2_gpu);
+    cudaFree(feq_gpu);
+    cudaFree(rho_gpu);
+    cudaFree(ux_gpu);
+    cudaFree(uy_gpu);
+    cudaFree(uz_gpu);
+    cudaFree(source_term_gpu);
+    printf("Lattice Boltzmann object cleaned\n");
+}
+
+__host__ void LB_simulate(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, 
+                          float *f1_gpu, float* f2_gpu, float *feq_gpu, float *source_term_gpu, 
+                          float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu, 
+                          int NX, int NY, int NZ, void (*cal_force_spread)(Edge**, int*, int, int, float*, float*, float*, cudaStream_t *), 
+                          Edge **edgeLists, int *edge_size_per_mesh, int num_threads, int num_mesh, cudaStream_t *streams)
+{
+    dim3 nthx(nThreads.x, nThreads.y, nThreads.z);
+    dim3 ngrid(NX/nthx.x, NY/nthx.y, NZ/nthx.z);
+    
+    int total_lattice_points = NX*NY*NZ;
+    checkCudaErrors(cudaMemsetAsync ((void*)(Fx_gpu), 0, total_lattice_points*sizeof(float), streams[0]));
+    checkCudaErrors(cudaMemsetAsync ((void*)(Fy_gpu), 0, total_lattice_points*sizeof(float), streams[1]));
+    checkCudaErrors(cudaMemsetAsync ((void*)(Fz_gpu), 0, total_lattice_points*sizeof(float), streams[2]));
+    checkCudaErrors(cudaMemsetAsync ((void*)(source_term_gpu), 0, 19*total_lattice_points*sizeof(float), streams[3]));
+
+    float val_1 = -9999.0f;
+    checkCudaErrors(cudaMemcpyToSymbolAsync(max_rho, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[0]));
+    checkCudaErrors(cudaMemcpyToSymbolAsync(max_ux, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[1]));
+    checkCudaErrors(cudaMemcpyToSymbolAsync(max_uy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[2]));
+    checkCudaErrors(cudaMemcpyToSymbolAsync(max_uz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[3]));
+    checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fx, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[4]));
+    checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[5]));
+    checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[6]));
+    
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After clear forces\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+    
+        cal_force_spread(edgeLists, edge_size_per_mesh, num_threads, num_mesh, Fx_gpu, Fy_gpu, Fz_gpu, streams);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After spreading forces\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    //     LB_add_gravity<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu,Fz_gpu, rho_gpu);
+    // checkCudaErrors(cudaDeviceSynchronize());
+    // printf("After adding gravity\n");
+    // update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    // checkCudaErrors(cudaDeviceSynchronize());
+    // check_max_params<<<1,1>>>();
+    // checkCudaErrors(cudaDeviceSynchronize());
+    
+        LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, source_term_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After Computing local params\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+        LB_compute_equi_distribution<<<ngrid, nthx>>>(rho_gpu, ux_gpu, uy_gpu, uz_gpu, feq_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After coputing EQUI distributions\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+        LB_compute_source_term<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, source_term_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After Computing source terms\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+        LB_collide<<<ngrid, nthx>>>(f1_gpu, f2_gpu, feq_gpu, source_term_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After Collision\n");
+    check_max_params<<<1,1>>>();
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    checkCudaErrors(cudaDeviceSynchronize());
+
+        LB_stream<<<ngrid, nthx>>>(f1_gpu, f2_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After Streaming\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+        LB_enforce_boundary_wall<<<ngrid, nthx>>>(f1_gpu, f2_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After boundary wall conditions\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("\n\n\n\n");
+    
+}
