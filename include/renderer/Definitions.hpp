@@ -32,9 +32,10 @@ struct Vertex
     glm::f32vec3 Position;
     glm::f32vec3 Normal;
     glm::f32vec2 TexCoords;
-    glm::f32vec3 Base;
-    // float mass;
+    glm::f32vec3 Base_Pos;
+    glm::f32vec3 Base_Vel;
     glm::f32vec3 Velocity;
+    float Area = 0.0f;
 };
 
 // struct Edge

@@ -1,12 +1,12 @@
 #include "LatticeBoltzmann.cuh"
 #define GRAV_CONST 0.001f
+// #define DEBUG
 
 __device__ float viscosity;
 __device__ float Re;
 __device__ float tau_no_dim;
 __device__ float delT=1.0f;
 __device__ float cs_inv_sq = 3.0f;
-__device__ float Ct;
 
 __device__ float w[19] = {1.0f/3.0f, 1.0f/18.0f,  1.0f/18.0f, 1.0f/18.0f, 1.0f/18.0f, 1.0f/18.0f, 1.0f/18.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f};
 
@@ -23,6 +23,11 @@ __device__ float max_rho = -9999.0f;
 __device__ float max_Fx = -9999.0f;
 __device__ float max_Fy = -9999.0f;
 __device__ float max_Fz = -9999.0f;
+
+float Ct;
+float Cl;
+
+extern float *count_loc;
 
 __device__ static float atomicMax(float* address, float val)
 {
@@ -46,6 +51,7 @@ __global__ void LB_compute_local_params(float *f1_gpu, float *Fx_gpu, float *Fy_
     float lat_rho=0.000f, lat_rho_ux=0.000f, lat_rho_uy=0.000f, lat_rho_uz=0.000f;
     int coord = 0;
     float f_val = 0.000f;
+    float cs = 1.0f/sqrt(cs_inv_sq);
     for(int i=0;i<19;i++)
     {
         f_val = f1_gpu[gpu_fieldn_index(idx, idy, idz, i, lb_sim_domain)];
@@ -55,11 +61,16 @@ __global__ void LB_compute_local_params(float *f1_gpu, float *Fx_gpu, float *Fy_
         lat_rho_uz += f_val*cz[i];
     }
     coord = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
+    
     rho_gpu[coord] = lat_rho;
     float rho_inv = (lat_rho == 0.0f?0.0f:(1.0f/lat_rho));
-    ux_gpu[coord] = (lat_rho_ux + 0.5f * delT * Fx_gpu[coord]) * rho_inv;
-    uy_gpu[coord] = (lat_rho_uy + 0.5f * delT * Fy_gpu[coord]) * rho_inv;
-    uz_gpu[coord] = (lat_rho_uz + 0.5f * delT * Fz_gpu[coord]) * rho_inv;
+
+    float newU = (lat_rho_ux + 0.5f * delT *Fx_gpu[coord]) * rho_inv;
+    float newV = (lat_rho_uy + 0.5f * delT *Fy_gpu[coord]) * rho_inv;
+    float newW = (lat_rho_uz + 0.5f * delT *Fz_gpu[coord]) * rho_inv;
+    ux_gpu[coord] = newU;
+    uy_gpu[coord] = newV;
+    uz_gpu[coord] = newW;
 }
 
 __global__ void LB_compute_equi_distribution(float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu,
@@ -149,8 +160,9 @@ __global__ void LB_collide(float *f1_gpu, float* f2_gpu, float *feq_gpu, float *
 
     int coord;
     float omega, source;
-    float tau_bar = tau_no_dim +delT/2.0f;
-    float tau_inv = (-1.0f/tau_bar);
+    // float tau_bar = tau_no_dim +delT/2.0f;
+    // float tau_inv = (-1.0f/tau_bar);
+    float tau_inv = (-1.0f/tau_no_dim);
     for(int i =0;i<19;i++)
     {
         coord = gpu_fieldn_index(idx, idy, idz, i, lb_sim_domain);
@@ -371,32 +383,48 @@ __global__ void LB_add_gravity(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, floa
     float domain_size = 2.0f;
     float Cl = domain_size/max(max(lb_sim_domain[0], lb_sim_domain[1]), lb_sim_domain[2]);
     int sidx = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
-    atomicAdd(&Fy_gpu[sidx], -1.0f* GRAV_CONST*Ct*Ct/Cl);
+    atomicAdd(&Fy_gpu[sidx], -1.0f* GRAV_CONST);
 }
 
 __host__ void LB_clear_Forces(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, float *source_term_gpu, 
     cudaStream_t *streams, int NX, int NY, int NZ)
 {
     int total_lattice_points = NX*NY*NZ;
-    checkCudaErrors(cudaMemsetAsync ((void*)(Fx_gpu), 0, total_lattice_points*sizeof(float), streams[0]));
-    checkCudaErrors(cudaMemsetAsync ((void*)(Fy_gpu), 0, total_lattice_points*sizeof(float), streams[1]));
-    checkCudaErrors(cudaMemsetAsync ((void*)(Fz_gpu), 0, total_lattice_points*sizeof(float), streams[2]));
-    checkCudaErrors(cudaMemsetAsync ((void*)(source_term_gpu), 0, 19*total_lattice_points*sizeof(float), streams[3]));
+    checkCudaErrors(cudaMemset ((void*)(Fx_gpu), 0, total_lattice_points*sizeof(float)));//, streams[0]));
+    checkCudaErrors(cudaMemset ((void*)(Fy_gpu), 0, total_lattice_points*sizeof(float)));//, streams[1]));
+    checkCudaErrors(cudaMemset ((void*)(Fz_gpu), 0, total_lattice_points*sizeof(float)));//, streams[2]));
+    (cudaMemset ((void*)(source_term_gpu), 0, 19*total_lattice_points*sizeof(float)));//, streams[3]));
+    checkCudaErrors(cudaMemset ((void*)(count_loc), 0, total_lattice_points*sizeof(int)));//, streams[4]));
+
+    // checkCudaErrors(cudaMemsetAsync ((void*)(Fx_gpu), 0, total_lattice_points*sizeof(float), streams[0]));
+    // checkCudaErrors(cudaMemsetAsync ((void*)(Fy_gpu), 0, total_lattice_points*sizeof(float), streams[1]));
+    // checkCudaErrors(cudaMemsetAsync ((void*)(Fz_gpu), 0, total_lattice_points*sizeof(float), streams[2]));
+    // checkCudaErrors(cudaMemsetAsync ((void*)(source_term_gpu), 0, 19*total_lattice_points*sizeof(float), streams[3]));
+
+    // checkCudaErrors(cudaMemsetAsync ((void*)(count_loc), 0, total_lattice_points*sizeof(int), streams[4]));
 }
 
 __host__ void LB_reset_max(cudaStream_t *streams)
 {
     float val_1 = -9999.0f;
-    checkCudaErrors(cudaMemcpyToSymbolAsync(max_rho, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[0]));
-    checkCudaErrors(cudaMemcpyToSymbolAsync(max_ux, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[1]));
-    checkCudaErrors(cudaMemcpyToSymbolAsync(max_uy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[2]));
-    checkCudaErrors(cudaMemcpyToSymbolAsync(max_uz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[3]));
-    checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fx, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[4]));
-    checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[5]));
-    checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[6]));
+    checkCudaErrors(cudaMemcpyToSymbol(max_rho, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice));//, streams[0]));
+    checkCudaErrors(cudaMemcpyToSymbol(max_ux, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice));//, streams[1]));
+    checkCudaErrors(cudaMemcpyToSymbol(max_uy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice));//, streams[2]));
+    checkCudaErrors(cudaMemcpyToSymbol(max_uz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice));//, streams[3]));
+    checkCudaErrors(cudaMemcpyToSymbol(max_Fx, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice));//, streams[4]));
+    checkCudaErrors(cudaMemcpyToSymbol(max_Fy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice));//, streams[5]));
+    checkCudaErrors(cudaMemcpyToSymbol(max_Fz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice));//, streams[6]));
+
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_rho, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[0]));
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_ux, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[1]));
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_uy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[2]));
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_uz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[3]));
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fx, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[4]));
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[5]));
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[6]));
 }
 
-__host__ void LB_compute_sim_param(int NX, int NY, int NZ, float viscosity, float Re)
+__host__ void LB_compute_sim_param(int NX, int NY, int NZ, float viscosity, float Re, float tau_star)
 {
     float domain_size = 2.0;
     float cs_inv_sq = 3.0f;
@@ -404,10 +432,13 @@ __host__ void LB_compute_sim_param(int NX, int NY, int NZ, float viscosity, floa
     float lat_l_no_dim = max(max(NX, NY), NZ);
     float delX = domain_size/lat_l_no_dim;
 
-    float non_dim_tau = 0.55f;
+    float non_dim_tau = tau_star;
     float deltaT = (1/cs_inv_sq)*(non_dim_tau-0.5)*((delX*delX)/viscosity);
     checkCudaErrors(cudaMemcpyToSymbol(tau_no_dim, &non_dim_tau, sizeof(float), 0, cudaMemcpyHostToDevice));
-    checkCudaErrors(cudaMemcpyToSymbol(Ct, &deltaT, sizeof(float), 0, cudaMemcpyHostToDevice));
+    // checkCudaErrors(cudaMemcpyToSymbol(Ct, &deltaT, sizeof(float), 0, cudaMemcpyHostToDevice));
+    // checkCudaErrors(cudaMemcpyToSymbol(Cl, &delX, sizeof(float), 0, cudaMemcpyHostToDevice));
+    Cl = delX;
+    Ct = deltaT;
     printf("..................Simulation parameters are as follows.........................\n");
     printf("Lattice Reynolds number : %f\n", Re);
     printf("non dimentional del T :%f\n", deltaT);
@@ -452,12 +483,19 @@ __host__ void LB_init_symbols(int NX, int NY, int NZ, float Reynolds, float mu, 
     int nu = NX;
     int nv = NY;
     int nw = NZ;
-    checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nu, sizeof(int), 0, cudaMemcpyHostToDevice, streams[0]));
-    checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nv, sizeof(int), sizeof(int), cudaMemcpyHostToDevice, streams[1]));
-    checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nw, sizeof(int), 2*sizeof(int), cudaMemcpyHostToDevice, streams[2]));
+    checkCudaErrors(cudaMemcpyToSymbol(lb_sim_domain, &nu, sizeof(int), 0, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyToSymbol(lb_sim_domain, &nv, sizeof(int), sizeof(int), cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyToSymbol(lb_sim_domain, &nw, sizeof(int), 2*sizeof(int), cudaMemcpyHostToDevice));
 
-    checkCudaErrors(cudaMemcpyToSymbolAsync(Re, &Reynold_number, sizeof(float), 0, cudaMemcpyHostToDevice, streams[3]));
-    checkCudaErrors(cudaMemcpyToSymbolAsync(viscosity, &vis, sizeof(float), 0, cudaMemcpyHostToDevice, streams[4]));
+    checkCudaErrors(cudaMemcpyToSymbol(Re, &Reynold_number, sizeof(float), 0, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyToSymbol(viscosity, &vis, sizeof(float), 0, cudaMemcpyHostToDevice));
+
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nu, sizeof(int), 0, cudaMemcpyHostToDevice, streams[0]));
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nv, sizeof(int), sizeof(int), cudaMemcpyHostToDevice, streams[1]));
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nw, sizeof(int), 2*sizeof(int), cudaMemcpyHostToDevice, streams[2]));
+
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(Re, &Reynold_number, sizeof(float), 0, cudaMemcpyHostToDevice, streams[3]));
+    // checkCudaErrors(cudaMemcpyToSymbolAsync(viscosity, &vis, sizeof(float), 0, cudaMemcpyHostToDevice, streams[4]));
 }
 
 __host__ void LB_init_memory( float **f1_gpu, float **f2_gpu, float **feq_gpu, float **source_term_gpu, 
@@ -468,15 +506,26 @@ __host__ void LB_init_memory( float **f1_gpu, float **f2_gpu, float **feq_gpu, f
     int total_lattice_points = NX*NY*NZ;
     unsigned int mem_size_ndir  = sizeof(float)*total_lattice_points*(19);
     unsigned int mem_size_scalar = sizeof(float)*total_lattice_points;
-    checkCudaErrors(cudaMemcpyAsync((void*)(*rho_gpu), (*rho), mem_size_scalar,  cudaMemcpyHostToDevice, streams[5]));
-    checkCudaErrors(cudaMemcpyAsync((void*)(*ux_gpu), (*ux), mem_size_scalar,  cudaMemcpyHostToDevice, streams[6]));
-    checkCudaErrors(cudaMemcpyAsync((void*)(*uy_gpu), (*uy), mem_size_scalar,  cudaMemcpyHostToDevice, streams[7]));
-    checkCudaErrors(cudaMemcpyAsync((void*)(*uz_gpu), (*uz), mem_size_scalar,  cudaMemcpyHostToDevice, streams[8]));
 
-    checkCudaErrors(cudaMemsetAsync ((void*)(*f1_gpu), 0, mem_size_ndir, streams[9]));
-    checkCudaErrors(cudaMemsetAsync ((void*)(*f2_gpu), 0, mem_size_ndir, streams[10]));
-    checkCudaErrors(cudaMemsetAsync ((void*)(*feq_gpu), 0, mem_size_ndir, streams[11]));
-    checkCudaErrors(cudaMemsetAsync ((void*)(*source_term_gpu), 0, mem_size_ndir, streams[12]));
+    checkCudaErrors(cudaMemcpy((void*)(*rho_gpu), (*rho), mem_size_scalar,  cudaMemcpyHostToDevice));// streams[5]));
+    checkCudaErrors(cudaMemcpy((void*)(*ux_gpu), (*ux), mem_size_scalar,  cudaMemcpyHostToDevice));//, streams[6]));
+    checkCudaErrors(cudaMemcpy((void*)(*uy_gpu), (*uy), mem_size_scalar,  cudaMemcpyHostToDevice));//, streams[7]));
+    checkCudaErrors(cudaMemcpy((void*)(*uz_gpu), (*uz), mem_size_scalar,  cudaMemcpyHostToDevice));//, streams[8]));
+
+    cudaMemcpy ((void*)(*f1_gpu), 0, mem_size_ndir, cudaMemcpyHostToDevice);//, streams[9]));
+    cudaMemcpy ((void*)(*f2_gpu), 0, mem_size_ndir, cudaMemcpyHostToDevice);//, streams[10]));
+    cudaMemcpy ((void*)(*feq_gpu), 0, mem_size_ndir, cudaMemcpyHostToDevice);//, streams[11]));
+    cudaMemcpy ((void*)(*source_term_gpu), 0, mem_size_ndir, cudaMemcpyHostToDevice);//, streams[12]));
+
+    // checkCudaErrors(cudaMemcpyAsync((void*)(*rho_gpu), (*rho), mem_size_scalar,  cudaMemcpyHostToDevice, streams[5]));
+    // checkCudaErrors(cudaMemcpyAsync((void*)(*ux_gpu), (*ux), mem_size_scalar,  cudaMemcpyHostToDevice, streams[6]));
+    // checkCudaErrors(cudaMemcpyAsync((void*)(*uy_gpu), (*uy), mem_size_scalar,  cudaMemcpyHostToDevice, streams[7]));
+    // checkCudaErrors(cudaMemcpyAsync((void*)(*uz_gpu), (*uz), mem_size_scalar,  cudaMemcpyHostToDevice, streams[8]));
+
+    // checkCudaErrors(cudaMemsetAsync ((void*)(*f1_gpu), 0, mem_size_ndir, streams[9]));
+    // checkCudaErrors(cudaMemsetAsync ((void*)(*f2_gpu), 0, mem_size_ndir, streams[10]));
+    // checkCudaErrors(cudaMemsetAsync ((void*)(*feq_gpu), 0, mem_size_ndir, streams[11]));
+    // checkCudaErrors(cudaMemsetAsync ((void*)(*source_term_gpu), 0, mem_size_ndir, streams[12]));
     checkCudaErrors(cudaDeviceSynchronize());
 }
 
@@ -485,7 +534,7 @@ __host__ void LB_init(int NX, int NY, int NZ, float Reynolds, float mu,
                       float **rho_gpu, float **ux_gpu, float **uy_gpu, float **uz_gpu, 
                       float **rho, float **ux, float **uy, float **uz, 
                       float **Fx_gpu, float **Fy_gpu, float **Fz_gpu,
-                      cudaStream_t *streams)
+                      cudaStream_t *streams, float tau_star)
 {
     float bytesPerGiB = 1024.0f*1024.0f*1024.0f;
     float total_size_allocated = LB_allocate_memory(NX, NY, NZ, f1_gpu, f2_gpu, feq_gpu,
@@ -500,19 +549,23 @@ __host__ void LB_init(int NX, int NY, int NZ, float Reynolds, float mu,
 
     dim3 nthx(nThreads.x, nThreads.y, nThreads.z);
     dim3 ngrid(NX/nthx.x, NY/nthx.y, NZ/nthx.z);
-    LB_compute_sim_param(NX, NY, NZ, mu, Reynolds);
+    LB_compute_sim_param(NX, NY, NZ, mu, Reynolds, tau_star);
     checkCudaErrors(cudaDeviceSynchronize());
-    LB_add_gravity<<<ngrid, nthx>>>(*Fx_gpu, *Fy_gpu, *Fz_gpu, *rho_gpu);
+    LB_reset_max(streams);
+    LB_clear_Forces(*Fx_gpu, *Fy_gpu, *Fz_gpu, *source_term_gpu, streams, NX, NY, NZ);
+    //LB_add_gravity<<<ngrid, nthx>>>(*Fx_gpu, *Fy_gpu, *Fz_gpu, *rho_gpu);
     LB_equi_Initialization<<<ngrid, nthx>>>(*f1_gpu, *feq_gpu, 
                             *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu, 
                             *Fx_gpu, *Fy_gpu, *Fz_gpu);
     
     checkCudaErrors(cudaDeviceSynchronize());
+#ifdef DEBUG
     printf("At start of simulations.......\n");
     update_max_params<<<ngrid, nthx>>>(*Fx_gpu, *Fy_gpu, *Fz_gpu, *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     check_max_params<<<1,1>>>();
     checkCudaErrors(cudaDeviceSynchronize());
+#endif
 }
 
 __host__ void LB_cleanup(float *f1_gpu, float* f2_gpu, float *feq_gpu, float *source_term_gpu, 
@@ -529,10 +582,11 @@ __host__ void LB_cleanup(float *f1_gpu, float* f2_gpu, float *feq_gpu, float *so
     printf("Lattice Boltzmann object cleaned\n");
 }
 
+#ifdef DEBUG
 __host__ void LB_simulate(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, 
                           float *f1_gpu, float* f2_gpu, float *feq_gpu, float *source_term_gpu, 
                           float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu, 
-                          int NX, int NY, int NZ, void (*cal_force_spread)(Vertex**, int*, int, int, float*, float*, float*, cudaStream_t *),  void (*advection_force)(Vertex **, int *, int, int,
+                          int NX, int NY, int NZ, void (*cal_force_spread)(Vertex**, int*, int, int, float*, float*, float*, cudaStream_t *),  void (*advect_velocity)(Vertex **, int *, int, int,
                             float *, float *, float *, cudaStream_t *),
                           Vertex **nodeLists, int *vertex_size_per_mesh, int num_threads, int num_mesh, cudaStream_t *streams)
 {
@@ -542,13 +596,14 @@ __host__ void LB_simulate(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu,
     LB_reset_max(streams);
     LB_clear_Forces( Fx_gpu, Fy_gpu, Fz_gpu, source_term_gpu, streams, NX, NY, NZ);
 
+
     checkCudaErrors(cudaDeviceSynchronize());
     printf("After clear forces\n");
     update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     check_max_params<<<1,1>>>();
     checkCudaErrors(cudaDeviceSynchronize());
-    
+
         cal_force_spread(nodeLists, vertex_size_per_mesh, num_threads, num_mesh, Fx_gpu, Fy_gpu, Fz_gpu, streams);
     checkCudaErrors(cudaDeviceSynchronize());
     printf("After spreading forces\n");
@@ -613,7 +668,176 @@ __host__ void LB_simulate(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu,
     check_max_params<<<1,1>>>();
     checkCudaErrors(cudaDeviceSynchronize());
 
-    advection_force(nodeLists, vertex_size_per_mesh, num_threads, num_mesh,
+    advect_velocity(nodeLists, vertex_size_per_mesh, num_threads, num_mesh,
                     ux_gpu, uy_gpu, uz_gpu, streams);
     printf("\n\n\n\n");
 }
+#else
+
+__host__ void LB_simulate(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, 
+                          float *f1_gpu, float* f2_gpu, float *feq_gpu, float *source_term_gpu, 
+                          float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu, 
+                          int NX, int NY, int NZ, void (*cal_force_spread)(Vertex**, int*, int, int, float*, float*, float*, cudaStream_t *),  void (*advect_velocity)(Vertex **, int *, int, int,
+                          float *, float *, float *, cudaStream_t *),
+                          Vertex **nodeLists, int *vertex_size_per_mesh, int num_threads, int num_mesh, cudaStream_t *streams)
+{
+    dim3 nthx(nThreads.x, nThreads.y, nThreads.z);
+    dim3 ngrid(NX/nthx.x, NY/nthx.y, NZ/nthx.z);
+    
+    LB_reset_max(streams);
+    LB_clear_Forces( Fx_gpu, Fy_gpu, Fz_gpu, source_term_gpu, streams, NX, NY, NZ);
+    cal_force_spread(nodeLists, vertex_size_per_mesh, num_threads, num_mesh, Fx_gpu, Fy_gpu, Fz_gpu, streams);
+    //     LB_add_gravity<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu,Fz_gpu, rho_gpu);
+    LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    LB_compute_equi_distribution<<<ngrid, nthx>>>(rho_gpu, ux_gpu, uy_gpu, uz_gpu, feq_gpu);
+    LB_compute_source_term<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, source_term_gpu, ux_gpu, uy_gpu, uz_gpu);
+    LB_collide<<<ngrid, nthx>>>(f1_gpu, f2_gpu, feq_gpu, source_term_gpu);
+    LB_stream<<<ngrid, nthx>>>(f1_gpu, f2_gpu);
+    LB_enforce_boundary_wall<<<ngrid, nthx>>>(f1_gpu, f2_gpu);
+    advect_velocity(nodeLists, vertex_size_per_mesh, num_threads, num_mesh,
+                    ux_gpu, uy_gpu, uz_gpu, streams);
+    
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After completion of time\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+}
+#endif
+
+#ifdef DEBUG
+__host__ void LB_simulate_RB(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, 
+                             float *f1_gpu, float* f2_gpu, float *feq_gpu, float *source_term_gpu, 
+                             float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu, 
+                             int NX, int NY, int NZ, float Ct,
+                             void (*cal_force_spread_RB)(Vertex**, int*, int, int, float*, float*, float*, float, float*, float*, float*, float *,cudaStream_t *), 
+                             void (*advect_velocity)(Vertex **, int *, int, int, float *, float *, float *, cudaStream_t *),
+                             Vertex **nodeLists, int *vertex_size_per_mesh, int num_threads, int num_mesh, cudaStream_t *streams)
+{
+    dim3 nthx(nThreads.x, nThreads.y, nThreads.z);
+    dim3 ngrid(NX/nthx.x, NY/nthx.y, NZ/nthx.z);
+    for(int i=0;i<iter_max;i++)
+    {
+        LB_reset_max(streams);
+        LB_clear_Forces( Fx_gpu, Fy_gpu, Fz_gpu, source_term_gpu, streams, NX, NY, NZ);
+        checkCudaErrors(cudaDeviceSynchronize());
+        printf("After clearing forces %d\n", i);
+        update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+        checkCudaErrors(cudaDeviceSynchronize());
+        check_max_params<<<1,1>>>();
+        checkCudaErrors(cudaDeviceSynchronize());
+        
+            LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+        checkCudaErrors(cudaDeviceSynchronize());
+        printf("After comuting local params %d\n", i);
+        update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+        checkCudaErrors(cudaDeviceSynchronize());
+        check_max_params<<<1,1>>>();
+        checkCudaErrors(cudaDeviceSynchronize());
+
+            advect_velocity(nodeLists, vertex_size_per_mesh, num_threads, num_mesh, ux_gpu, uy_gpu, uz_gpu, streams);
+        checkCudaErrors(cudaDeviceSynchronize());
+        printf("After advecting velocity %d\n", i);
+        update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+        checkCudaErrors(cudaDeviceSynchronize());
+        check_max_params<<<1,1>>>();
+        checkCudaErrors(cudaDeviceSynchronize());
+
+            cal_force_spread_RB(nodeLists, vertex_size_per_mesh, num_threads, num_mesh, Fx_gpu, Fy_gpu, Fz_gpu, Ct, rho_gpu, ux_gpu, uy_gpu, uz_gpu, streams);
+        checkCudaErrors(cudaDeviceSynchronize());
+        printf("After spreading force %d\n", i);
+        update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+        checkCudaErrors(cudaDeviceSynchronize());
+        check_max_params<<<1,1>>>();
+        checkCudaErrors(cudaDeviceSynchronize());
+
+            LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+        checkCudaErrors(cudaDeviceSynchronize());
+        printf("After correct local params of %d\n", i);
+        update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+        checkCudaErrors(cudaDeviceSynchronize());
+        check_max_params<<<1,1>>>();
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
+        LB_compute_equi_distribution<<<ngrid, nthx>>>(rho_gpu, ux_gpu, uy_gpu, uz_gpu, feq_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After equi dist\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+        LB_compute_source_term<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, source_term_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After source terms\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+        LB_collide<<<ngrid, nthx>>>(f1_gpu, f2_gpu, feq_gpu, source_term_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After collision\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+        LB_stream<<<ngrid, nthx>>>(f1_gpu, f2_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After stream\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+        LB_enforce_boundary_wall<<<ngrid, nthx>>>(f1_gpu, f2_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    printf("After boundary wall conditions\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    printf("\n\n\n");
+}
+
+#else
+__host__ void LB_simulate_RB(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, 
+                            float *f1_gpu, float* f2_gpu, float *feq_gpu, float *source_term_gpu, 
+                            float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu, 
+                            int NX, int NY, int NZ, float Ct,
+                            void (*cal_force_spread_RB)(Vertex**, int*, int, int, float*, float*, float*, float, float*, float*, float*, float *,cudaStream_t *), 
+                            void (*advect_velocity)(Vertex **, int *, int, int, float *, float *, float *, cudaStream_t *),
+                            Vertex **nodeLists, int *vertex_size_per_mesh, int num_threads, int num_mesh, cudaStream_t *streams)
+{
+    dim3 nthx(nThreads.x, nThreads.y, nThreads.z);
+    dim3 ngrid(NX/nthx.x, NY/nthx.y, NZ/nthx.z);
+
+    LB_reset_max(streams);
+    LB_clear_Forces( Fx_gpu, Fy_gpu, Fz_gpu, Fx_gpu, streams, NX, NY, NZ);
+    
+    LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    advect_velocity(nodeLists, vertex_size_per_mesh, num_threads, num_mesh, ux_gpu, uy_gpu, uz_gpu, streams);
+    checkCudaErrors(cudaDeviceSynchronize());
+    cal_force_spread_RB(nodeLists, vertex_size_per_mesh, num_threads, num_mesh, Fx_gpu, Fy_gpu, Fz_gpu, Ct, rho_gpu, ux_gpu, uy_gpu, uz_gpu, streams);
+    checkCudaErrors(cudaDeviceSynchronize());
+    LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    
+    LB_compute_equi_distribution<<<ngrid, nthx>>>(rho_gpu, ux_gpu, uy_gpu, uz_gpu, feq_gpu);
+    LB_compute_source_term<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, source_term_gpu, ux_gpu, uy_gpu, uz_gpu);
+    LB_collide<<<ngrid, nthx>>>(f1_gpu, f2_gpu, feq_gpu, source_term_gpu);
+    LB_stream<<<ngrid, nthx>>>(f1_gpu, f2_gpu);
+    LB_enforce_boundary_wall<<<ngrid, nthx>>>(f1_gpu, f2_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    printf("After boundary wall conditions\n");
+    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    checkCudaErrors(cudaDeviceSynchronize());
+    check_max_params<<<1,1>>>();
+    checkCudaErrors(cudaDeviceSynchronize());
+}
+#endif

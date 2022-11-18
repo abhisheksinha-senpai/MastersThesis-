@@ -10,7 +10,7 @@ class Model
     public:
     Model(){};
     Model(char *path, glm::f32vec3 scale, glm::f32vec3 origin);
-    void Draw(Shader &shader, glm::f32vec3 scale, glm::f32vec3 origin);
+    void Draw(Shader &shader, glm::f32vec3 scale);
     std::vector<Mesh> meshes;
     float minX= 99999, maxX=-99999, minY=99999, maxY=-99999, minZ=99999, maxZ=-99999;
     ~Model();

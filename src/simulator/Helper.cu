@@ -52,7 +52,7 @@ __host__ void display_init(GLFWwindow** window)
         return;
     }
     stbi_set_flip_vertically_on_load(true);
-    glEnable(GL_DEPTH_TEST);
+    //glEnable(GL_DEPTH_TEST);
     glfwSetInputMode(*window, GLFW_CURSOR, GLFW_CURSOR_NORMAL );
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable( GL_BLEND );
@@ -68,13 +68,16 @@ glm::f32vec3 scale, glm::f32vec3 origin)
     ourShader.create_vs_shader(ourShader.vertex_shader.c_str());
     ourShader.create_fs_shader(ourShader.fragment_shader.c_str());
     ourShader.compile();
-    std::string model_name = "resources/backpack/backpack.obj";
+    // std::string model_name = "resources/backpack/backpack.obj";
+    // std::string model_name = "resources/Cup/cup.obj";
+    // std::string model_name = "resources/Cube/slime.obj";
+    std::string model_name = "resources/Sphere/Ball.obj";
     ourModel = Model((char *)model_name.c_str(), scale, origin);
     printf("Model initialized.....\n");
 }
 
 void domain_init(int NX, int NY, int NZ,
-                          float **rho, float **ux, float **uy,float **uz)
+                float **rho, float **ux, float **uy,float **uz)
 {
     int sz = NX*NY*NZ*sizeof(float);
     *rho = (float *)malloc(sz);
@@ -87,7 +90,7 @@ void domain_init(int NX, int NY, int NZ,
     memset(*uy, 0, sz);
     memset(*uz, 0, sz);
     
-    int loc = 0;
+    int loc = 0, X1, Y1, Z1;
     for(int j=0;j<NY;j++)
     {
         for(int i=0;i<NX;i++)
@@ -99,11 +102,24 @@ void domain_init(int NX, int NY, int NZ,
                 (*ux)[loc] = 0.0f;
                 (*uy)[loc] = 0.0f;
                 (*uz)[loc] = 0.0f;
-                if(j<NY/2)
-                    (*rho)[loc] = 1.0f;
             }
         }
     }
+
+    // for(int i =0;i<obj.meshes.size();i++)
+    // {
+    //     for(int j=0;j<obj.meshes[i].size();j++)
+    //     {
+    //         X1 = (int)obj.meshes[i][j].Position.x;
+    //         Y1 = (int)obj.meshes[i][j].Position.y;
+    //         Z1 = (int)obj.meshes[i][j].Position.z;
+    //         loc  = i+j*NX+k*NX*NY;
+    //         (*ux)[loc] = obj.meshes[i][j].Base_Vel.x;
+    //         (*uy)[loc] = obj.meshes[i][j].Base_Vel.z;
+    //         (*uz)[loc] = obj.meshes[i][j].Base_Vel.z;
+
+    //     }
+    // }
     printf("Domain initialized...\n");
 }
 
@@ -212,7 +228,7 @@ __host__ void transfer_mesh_data(int num_mesh, Vertex **nodeLists,
 }
 
 __host__ void draw_model( GLFWwindow* window, Shader& shader, Model& objmodel,
-                          glm::f32vec3 scale, glm::f32vec3 origin, 
+                          glm::f32vec3 scale, 
                           int num_mesh, Vertex **nodeLists, 
                           int *vertex_size_per_mesh,
                           cudaStream_t *streams)
@@ -227,7 +243,7 @@ __host__ void draw_model( GLFWwindow* window, Shader& shader, Model& objmodel,
     glUniformMatrix4fv(glGetUniformLocation(shader.get_shader_pgm(), "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(shader.get_shader_pgm(), "projection"), 1, GL_FALSE, glm::value_ptr(proj));
     // render the loaded model
-    objmodel.Draw(shader, scale, origin);
+    objmodel.Draw(shader, scale);
     model = glm::mat4(1);
 }
 
@@ -258,43 +274,45 @@ int n = 0;
 __host__ void display ( float *rho, float*ux, float *uy, float *uz,
                         float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu,
                         int NX, int NY, int NZ, 
-                        ParticleSystem &fluid, glm::f32vec3 mod_scale, glm::f32vec3 origin, glm::f32vec3 dis_scale,
-                        GLFWwindow** window, Shader& shader, Model &model, 
+                        ParticleSystem &fluid, glm::f32vec3 mod_scale, glm::f32vec3 dis_scale,
+                        GLFWwindow** window, Shader& shader, Model &model, Geometry &fluidDomain, 
                         int num_mesh, Vertex **nodeLists, 
                         int *vertex_size_per_mesh,
                         cudaStream_t *streams)
 {
-    glClearColor(0.05f, 0.05f, 0.05f, 0.05f);
+    glClearColor(0.45f, 0.85f, 0.15f, 0.05f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    
-    draw_model( *window, shader, model, dis_scale, origin, 
+
+    draw_model( *window, shader, model, dis_scale, 
                 num_mesh, nodeLists, vertex_size_per_mesh, streams);
 
+    fluidDomain.draw_geometry(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp);
+    
     draw_fluid(rho, ux, uy,uz,
                rho_gpu, ux_gpu, uy_gpu, uz_gpu,
                NX, NY, NZ, 
                fluid, mod_scale, dis_scale);
 
-    n++;
-    if((n%10000) == 0)
-    {
-        std::ofstream o;
-        char filename[128];
-        char format[32];
-        sprintf(filename,"00_%s_%d.csv","output",n);
-        o.open(filename);
-        for(int i=0;i<NZ;i++)
-        {
-            for(int j=0;j<NY;j++)
-            {
-                //setprecision(5);
-                for(int k = 0;k<NX;k++)
-                    o<<rho[i*(NX*NY) + NX*j + k]<<","<<ux[i*(NX*NY) + NX*j + k]<<","<<uy[i*(NX*NY) + NX*j + k]<<","<<uz[i*(NX*NY) + NX*j + k]<<","<<i<<","<<j<<","<<k<<std::endl;
-            }
-        }
-        o<<std::endl;
-        o.close();
-    }
+    // n++;
+    // if((n%10000) == 0)
+    // {
+    //     std::ofstream o;
+    //     char filename[128];
+    //     char format[32];
+    //     sprintf(filename,"00_%s_%d.csv","output",n);
+    //     o.open(filename);
+    //     for(int i=0;i<NZ;i++)
+    //     {
+    //         for(int j=0;j<NY;j++)
+    //         {
+    //             //setprecision(5);
+    //             for(int k = 0;k<NX;k++)
+    //                 o<<rho[i*(NX*NY) + NX*j + k]<<","<<ux[i*(NX*NY) + NX*j + k]<<","<<uy[i*(NX*NY) + NX*j + k]<<","<<uz[i*(NX*NY) + NX*j + k]<<","<<i<<","<<j<<","<<k<<std::endl;
+    //         }
+    //     }
+    //     o<<std::endl;
+    //     o.close();
+    // }
     processInput(*window);
     glfwPollEvents();
     glfwSwapBuffers(*window);

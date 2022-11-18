@@ -31,7 +31,7 @@ void Mesh::setupMesh()
     glBindVertexArray(0);
 }
 
-void Mesh::Draw(Shader &shader, glm::f32vec3 scale, glm::f32vec3 origin)
+void Mesh::Draw(Shader &shader, glm::f32vec3 scale)
 {
     unsigned int diffuseNr = 1;
     unsigned int specularNr = 1;
@@ -53,6 +53,7 @@ void Mesh::Draw(Shader &shader, glm::f32vec3 scale, glm::f32vec3 origin)
     glActiveTexture(GL_TEXTURE0);
     glm::mat4 model = glm::mat4(1.0f);
 
+    model = glm::translate(model, glm::f32vec3(-1, -1, -1));
     model = glm::scale(model,scale);
 
     glUniformMatrix4fv(glGetUniformLocation(shader.get_shader_pgm(), "model"), 1, GL_FALSE, glm::value_ptr(model));
@@ -76,6 +77,7 @@ void Mesh::Draw(Shader &shader, glm::f32vec3 scale, glm::f32vec3 origin)
     // vertex texture coords
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     glDrawElements(GL_TRIANGLES, this->indices.size(), GL_UNSIGNED_INT, 0);
     model = glm::mat4(1.0f);
     glUniformMatrix4fv(glGetUniformLocation(shader.get_shader_pgm(), "model"), 1, GL_FALSE, glm::value_ptr(model));

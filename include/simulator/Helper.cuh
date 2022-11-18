@@ -9,6 +9,7 @@
 #include "utilities.cuh"
 #include "ImmersedBoundary.cuh"
 #include "LatticeBoltzmann.cuh"
+#include "Domain.hpp"
 
 __host__ void display_init(GLFWwindow** window);
 
@@ -25,8 +26,8 @@ __host__ void model_init(ResourceManager &r_manager, Shader &ourShader, Model &o
 __host__ void display ( float *rho, float*ux, float *uy, float *uz,
                         float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu,
                         int NX, int NY, int NZ, 
-                        ParticleSystem &fluid, glm::f32vec3 mod_scale, glm::f32vec3 origin, glm::f32vec3 dis_scale,
-                        GLFWwindow** window, Shader& shader, Model &model, 
+                        ParticleSystem &fluid, glm::f32vec3 mod_scale, glm::f32vec3 dis_scale,
+                        GLFWwindow** window, Shader& shader, Model &model, Geometry &fluidDomain,
                         int num_mesh, Vertex **nodeLists, 
                         int *vertex_size_per_mesh,
                         cudaStream_t *streams);

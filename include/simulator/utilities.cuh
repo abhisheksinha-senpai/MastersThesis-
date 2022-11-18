@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstring>
 #include <cuda_runtime.h>
+#define _USE_MATH_DEFINES
+#include <math.h>
 
 const dim3 nThreads(64, 1, 1);
 

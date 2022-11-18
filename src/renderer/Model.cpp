@@ -22,10 +22,10 @@ Model::Model(char *path,  glm::f32vec3 scale, glm::f32vec3 origin)
     loadModel(path, scale, origin);
 }
 
-void Model::Draw(Shader &shader, glm::f32vec3 scale, glm::f32vec3 origin)
+void Model::Draw(Shader &shader, glm::f32vec3 scale)
 {
     for(unsigned int i = 0; i < meshes.size(); i++)
-        meshes[i].Draw(shader, scale, origin);
+        meshes[i].Draw(shader, scale);
 }
 
 void Model::loadModel(std::string path, glm::f32vec3 scale, glm::f32vec3 origin)
@@ -41,9 +41,10 @@ void Model::loadModel(std::string path, glm::f32vec3 scale, glm::f32vec3 origin)
     }
     directory = path.substr(0, path.find_last_of("/"));
     processNode(scene->mRootNode, scene);
-    
+    long long vertices_total = 0;
     for(int i=0;i<meshes.size();i++)
     {
+        vertices_total += meshes[i].vertices.size();
         for(int j=0;j<meshes[i].vertices.size();j++)
         {
             meshes[i].vertices[j].Position.x = (meshes[i].vertices[j].Position.x - minX)*scale.x/(maxX-minX) + origin.x;
@@ -56,13 +57,28 @@ void Model::loadModel(std::string path, glm::f32vec3 scale, glm::f32vec3 origin)
                 printf("Same Z\n");
             if((maxZ-minZ) == 0)
                 printf("Same Z\n");
-            meshes[i].vertices[j].Base = meshes[i].vertices[j].Position;
+            meshes[i].vertices[j].Base_Pos = meshes[i].vertices[j].Position;
+        }
+    }
+    float ratio = (1.0f/3.0f);
+    for(int i=0;i<meshes.size();i++)
+    {
+        for(int j=0;j<meshes[i].indices.size();j+=3)
+        {
+            glm::f32vec3 v1 = meshes[i].vertices[meshes[i].indices[i]].Position - meshes[i].vertices[meshes[i].indices[i+1]].Position;
+            glm::f32vec3 v2 = meshes[i].vertices[meshes[i].indices[i+2]].Position - meshes[i].vertices[meshes[i].indices[i+1]].Position;
+            float area = 0.5f*glm::length(glm::cross(v1, v2));
+            meshes[i].vertices[meshes[i].indices[i]].Area += ratio*area;
+            meshes[i].vertices[meshes[i].indices[i+1]].Area += ratio*area;
+            meshes[i].vertices[meshes[i].indices[i+2]].Area += ratio*area;
         }
     }
     printf("%f %f %f\n",  scale.x,  scale.y,  scale.z);
     printf("%s, %s\n", glm::to_string(glm::f32vec3((scale.x/(maxX-minX)), (scale.y/(maxY-minY)), (scale.z/(maxZ-minZ)))).c_str(), glm::to_string(origin).c_str());
     printf("Modeling done\n");
     printf("Total mesh %ld\n", meshes.size());
+    printf("Total Vertex count: %ld\n", vertices_total);
+    printf("Total memory needed for Mesh allocation: %lf GB\n", vertices_total*sizeof(Vertex)/(1024.0f*1024.0f*1024.0f));
 }
 
 void Model::processNode(aiNode *node, const aiScene *scene)
@@ -94,8 +110,10 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene)
         vector.y = mesh->mVertices[i].y;
         vector.z = mesh->mVertices[i].z;
         vertex.Position = vector;
-        vertex.Base = vector;
+        vertex.Base_Pos = vector;
         vertex.Velocity = glm::f32vec3(0.0f);
+        vertex.Base_Vel = glm::f32vec3(0.0f);
+        vertex.Area = 0.0f;
 
         minX = glm::min(minX, vector.x);
         maxX = glm::max(maxX, vector.x);

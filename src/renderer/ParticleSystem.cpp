@@ -40,8 +40,10 @@ void ParticleSystem::update_particles(int NX, int NY, int NZ, float *rho, float 
         float y = (fluid[i].Position.y);
         float z = (fluid[i].Position.z);
         int loc = (int)(x+y*NX+z*NX*NY);
-        fluid[i].Color = glm::vec4(abs(ux[loc])/0.00001, abs(uy[loc])/0.00001, abs(uz[loc])/0.00001, 10*abs(glm::length(glm::f32vec3(ux[loc]/0.0001, uy[loc]/0.0001, uz[loc]/0.0001))));
-        //  fluid[i].Color = glm::vec4(10*abs(ux[loc]), 10*abs(uy[loc]), 10*abs(uz[loc]), abs(glm::length(glm::f32vec3(ux[loc], uy[loc], uz[loc]))));
+        //fluid[i].Color = glm::vec4(abs(ux[loc])/10000, abs(uy[loc])/10000, abs(uz[loc])/10000, abs(glm::length(glm::f32vec3(ux[loc], uy[loc], uz[loc]))));
+         fluid[i].Color = glm::vec4(abs(ux[loc])*100, abs(uy[loc])*100, abs(uz[loc])*100, 100*abs(glm::length(glm::f32vec3(ux[loc], uy[loc], uz[loc]))));
+        // float val = 10*sqrt(powf(abs(ux[loc]),2)+powf(abs(uy[loc]),2.0f)+powf(abs(uz[loc]),2.0f));
+        //  fluid[i].Color = glm::vec4(val, val, val, 10*abs(val));
     }
 } 
 
@@ -49,7 +51,9 @@ void ParticleSystem::draw_particles(int SCR_WIDTH, int SCR_HEIGHT, glm::vec3 cam
 {
     fluidShader.use();
     glm::mat4 model = glm::mat4(1);
+    model = glm::translate(model, glm::f32vec3(-1, -1, -1));
     model = glm::scale(model, dis_scale);
+    
     glm::mat4 view = glm::lookAt(cameraPos, cameraPos+cameraFront, cameraUp); 
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
     glUniformMatrix4fv(glGetUniformLocation(fluidShader.get_shader_pgm(), "view_domain"), 1, GL_FALSE, glm::value_ptr(view));
@@ -69,6 +73,8 @@ void ParticleSystem::draw_particles(int SCR_WIDTH, int SCR_HEIGHT, glm::vec3 cam
     glDrawArrays(GL_POINTS , 0, fluid.size());
     glBindVertexArray(0);
     glPointSize(1);
+    // glDeleteBuffers(1, &VBO_1);
+    // glDeleteVertexArrays(1, &VAO_1);
 }
 
 ParticleSystem::~ParticleSystem()
