@@ -1,5 +1,5 @@
 #include "Helper.cuh"
-#include <ctime>
+
 extern unsigned int SCR_WIDTH;
 extern unsigned int SCR_HEIGHT;
 

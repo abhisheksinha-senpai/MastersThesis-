@@ -16,6 +16,7 @@
 #include <cerrno>
 #include <unordered_map>
 #include <utility>
+#include <ctime>
 
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"

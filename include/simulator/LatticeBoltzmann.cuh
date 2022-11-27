@@ -1,8 +1,10 @@
 #ifndef LBM_H_
 #define LBM_H__
 
-#include "utilities.cuh"
 #include "glm/glm.hpp"
+
+#include "utilities.cuh"
+
 
 struct Vertex;
 

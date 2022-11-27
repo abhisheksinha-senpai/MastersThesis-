@@ -6,10 +6,11 @@
 #include "Shader.hpp"
 #include "Model.hpp"
 #include "ParticleSystem.hpp"
+#include "Domain.hpp"
+
 #include "utilities.cuh"
 #include "ImmersedBoundary.cuh"
 #include "LatticeBoltzmann.cuh"
-#include "Domain.hpp"
 
 __host__ void display_init(GLFWwindow** window);
 
