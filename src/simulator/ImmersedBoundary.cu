@@ -3,7 +3,12 @@
 __device__ int sim_domain[3];
 __device__ float spring_constant;
 
+Vertex **nodeLists;
+int *vertex_size_per_mesh;
+
 extern float *count_loc;
+extern float *Fx_gpu, *Fy_gpu, *Fz_gpu;
+extern float *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu;
 
 __device__ float calculate_kernel_phi(float x, int type)
 {
@@ -83,17 +88,17 @@ __global__ void update_position_RB(Vertex *nodeLists, int vertexList_size, int n
     int id = threadIdx.x + blockIdx.x * blockDim.x;
     for(int p=id;p<vertexList_size;p+=num_threads)
     {
-        nodeLists[p].Base_Pos += nodeLists[p].Base_Vel;
+        nodeLists[p].Base_Pos = nodeLists[p].Base_Pos + nodeLists[p].Base_Vel;
         nodeLists[p].Position = nodeLists[p].Base_Pos;
     }
 }
 
 __global__ void update_velocity_RB(Vertex *nodeLists, int vertexList_size, int num_threads,
                                    glm::f32vec3 Velocity, float *ux_gpu, float *uy_gpu, float *uz_gpu, 
-                                   float Ct)
+                                   float Ct, float Cl)
 {
     int id = threadIdx.x + blockIdx.x * blockDim.x;
-    float Cu = 2.0f/(sim_domain[0]*Ct);
+    float Cu = Cl/Ct;
     glm::f32vec3 Base_vel = Velocity/Cu;
     //printf("%f %f %f   ", Base_vel.x, Base_vel.y, Base_vel.z);
     for(int p=id;p<vertexList_size;p+=num_threads)
@@ -148,10 +153,6 @@ __global__ void calculate_force_spreading_RB_per_mesh(Vertex *nodeLists, int ver
     int coord = 0;
     int start = id;
     int sampling_factor = 1;
-    // if(vertexList_size<200)
-    //     sampling_factor =1;
-    // else if(vertexList_size<800)
-    //     sampling_factor = 16;
 
     for(int p=sampling_factor*start;p<vertexList_size;p+=sampling_factor*num_threads)
     {
@@ -159,9 +160,8 @@ __global__ void calculate_force_spreading_RB_per_mesh(Vertex *nodeLists, int ver
         float Y1 = nodeLists[p].Position.y;
         float Z1 = nodeLists[p].Position.z;
         coord = gpu_scalar_index((int)(X1), (int)(Y1), (int)(Z1), sim_domain);
-        fj = 2.0f*rho_gpu[coord]*( nodeLists[p].Base_Vel - nodeLists[p].Velocity)*(1.0f/vertexList_size);
-        // if(glm::length(fj)>0)
-        //     printf("(%f %f %f | %f %f %f | %f)  ",nodeLists[p].Base_Vel.x, nodeLists[p].Base_Vel.y, nodeLists[p].Base_Vel.z, nodeLists[p].Velocity.x, nodeLists[p].Velocity.y, nodeLists[p].Velocity.z, nodeLists[p].Area);
+        fj = 2.0f*rho_gpu[coord]*( nodeLists[p].Base_Vel - nodeLists[p].Velocity)*0.1f;
+
         for(int i=-1;i<=2;i++)
         {
             for(int j=-1;j<=2;j++)
@@ -202,38 +202,20 @@ __global__ void print_force(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu)
         printf("( %f %f %f   %d %d %d) ",Fx_gpu[coord], Fy_gpu[coord], Fz_gpu[coord], idx, idy, idz);
 }
 
-__host__ void IBM_init(int NX, int NY, int NZ,
-                       float **Fx_gpu, float **Fy_gpu, float **Fz_gpu, 
-                       int num_mesh, Vertex **nodeLists, 
-                       int *vertex_size_per_mesh, Vertex** nodeData, 
-                        cudaStream_t *streams, float s_c)
+__host__ float IBM_init(int NX, int NY, int NZ, int num_mesh, Vertex** nodeData, cudaStream_t *streams, float spring_const)
 {
-    int total_lattice_points = NX * NY * NZ;
-    checkCudaErrors(cudaDeviceSynchronize());
-    checkCudaErrors(cudaMalloc((void**)Fx_gpu, total_lattice_points*sizeof(float)));
-    checkCudaErrors(cudaMalloc((void**)Fy_gpu, total_lattice_points*sizeof(float)));
-    checkCudaErrors(cudaMalloc((void**)Fz_gpu, total_lattice_points*sizeof(float)));
-
-    checkCudaErrors(cudaMalloc((void**)&count_loc, total_lattice_points*sizeof(float)));
-    
-    checkCudaErrors(cudaMemset((void*)(*Fx_gpu), 0, total_lattice_points*sizeof(float)));
-    checkCudaErrors(cudaMemset((void*)(*Fy_gpu), 0, total_lattice_points*sizeof(float)));
-    checkCudaErrors(cudaMemset((void*)(*Fz_gpu), 0, total_lattice_points*sizeof(float)));
-    checkCudaErrors(cudaMemset((void*)(count_loc), 0, total_lattice_points*sizeof(float)));
-    
-    // checkCudaErrors(cudaMemsetAsync((void*)(*Fx_gpu), 0, total_lattice_points*sizeof(float), streams[0]));
-    // checkCudaErrors(cudaMemsetAsync((void*)(*Fy_gpu), 0, total_lattice_points*sizeof(float), streams[1]));
-    // checkCudaErrors(cudaMemsetAsync((void*)(*Fz_gpu), 0, total_lattice_points*sizeof(float), streams[2]));
-    // checkCudaErrors(cudaMemsetAsync((void*)(count_loc), 0, total_lattice_points*sizeof(float), streams[3]));
-
-    checkCudaErrors(cudaDeviceSynchronize());
+    float total_size_allocated = 0;
     for(int i=0;i<num_mesh;i++)
+    {
         checkCudaErrors(cudaMalloc((void**)&(nodeLists[i]), vertex_size_per_mesh[i]*sizeof(Vertex)));
+        total_size_allocated += vertex_size_per_mesh[i]*sizeof(Vertex);
+    }
 
-    checkCudaErrors(cudaDeviceSynchronize());
     for(int i=0;i<num_mesh;i++)
         checkCudaErrors(cudaMemcpyAsync(nodeLists[i], nodeData[i], vertex_size_per_mesh[i]*sizeof(Vertex), cudaMemcpyHostToDevice, streams[i]));
-    float k = s_c;
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    float k = spring_const;
     checkCudaErrors(cudaMemcpyToSymbolAsync(spring_constant, &k, sizeof(float), 0, cudaMemcpyHostToDevice, streams[0]));
     int nu = NX;
     int nv = NY;
@@ -242,59 +224,50 @@ __host__ void IBM_init(int NX, int NY, int NZ,
     checkCudaErrors(cudaMemcpyToSymbol(sim_domain, &nu, sizeof(int), 0, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyToSymbol(sim_domain, &nv, sizeof(int), sizeof(int), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyToSymbol(sim_domain, &nw, sizeof(int), 2*sizeof(int), cudaMemcpyHostToDevice));
-    
+
     // checkCudaErrors(cudaMemcpyToSymbolAsync(sim_domain, &nu, sizeof(int), 0, cudaMemcpyHostToDevice, streams[0]));
     // checkCudaErrors(cudaMemcpyToSymbolAsync(sim_domain, &nv, sizeof(int), sizeof(int), cudaMemcpyHostToDevice, streams[1]));
     // checkCudaErrors(cudaMemcpyToSymbolAsync(sim_domain, &nw, sizeof(int), 2*sizeof(int), cudaMemcpyHostToDevice, streams[2]));
     
     checkCudaErrors(cudaDeviceSynchronize());
+
+    return total_size_allocated;
 }
 
-__host__ void IBM_force_spread(Vertex **nodeLists, int *nodeList_size, int num_threads, int num_mesh,
-                               float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, cudaStream_t *streams)
+__host__ void IBM_force_spread(int num_threads, int num_mesh, cudaStream_t *streams)
 {
     for(int i=0;i<num_mesh;i++)
-        calculate_force_spreading_per_mesh<<<1,num_threads,0, streams[i]>>>(nodeLists[i], nodeList_size[i],
-                                                              num_threads, Fx_gpu, Fy_gpu, Fz_gpu);
+        calculate_force_spreading_per_mesh<<<1,num_threads,0, streams[i]>>>(nodeLists[i], vertex_size_per_mesh[i], num_threads, Fx_gpu, Fy_gpu, Fz_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
 }
 
-__host__ void IBM_force_spread_RB(Vertex **nodeLists, int *nodeList_size, int num_threads, int num_mesh,
-                                  float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, float Ct,
-                                  float *rho_gpu,float *ux_gpu, float *uy_gpu, float *uz_gpu, cudaStream_t *streams)
+__host__ void IBM_force_spread_RB(int num_threads, int num_mesh, float Ct, cudaStream_t *streams)
 {
     for(int i=0;i<num_mesh;i++)
-        calculate_force_spreading_RB_per_mesh<<<1,num_threads,0, streams[i]>>>(nodeLists[i], nodeList_size[i],
+        calculate_force_spreading_RB_per_mesh<<<1,num_threads,0, streams[i]>>>(nodeLists[i], vertex_size_per_mesh[i],
                                                           num_threads, Fx_gpu, Fy_gpu, Fz_gpu, Ct, rho_gpu, ux_gpu, uy_gpu, uz_gpu, count_loc);
     checkCudaErrors(cudaDeviceSynchronize());
 }
 
-__host__ void IBM_advect_bound(Vertex **nodeLists, int *nodeList_size, int num_threads, int num_mesh,
-                                float *ux_gpu, float *uy_gpu, float *uz_gpu, cudaStream_t *streams)
+__host__ void IBM_advect_bound(int num_threads, int num_mesh, cudaStream_t *streams)
 {
     for(int i=0;i<num_mesh;i++)
-        spread_fluid_velocity<<<1,num_threads,0, streams[i]>>>(nodeLists[i], nodeList_size[i], num_threads, ux_gpu, uy_gpu, uz_gpu);
+        spread_fluid_velocity<<<1,num_threads,0, streams[i]>>>(nodeLists[i], vertex_size_per_mesh[i], num_threads, ux_gpu, uy_gpu, uz_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
 }
 
-__host__ void update_IB_params(Vertex **nodeLists, int *nodeList_size, int num_threads, int num_mesh, float Ct,
-                               glm::f32vec3 Velocity_RB, float *ux_gpu, float *uy_gpu, float *uz_gpu, cudaStream_t *streams)
+__host__ void update_IB_params(int num_threads, int num_mesh, float Ct, float Cl, glm::f32vec3 Velocity_RB, cudaStream_t *streams)
 {
     for(int i=0;i<num_mesh;i++)
     {
-        update_velocity_RB<<<1,num_threads,0, streams[i]>>>(nodeLists[i], nodeList_size[i], num_threads, Velocity_RB, ux_gpu, uy_gpu, uz_gpu, Ct);
-        update_position_RB<<<1,num_threads,0, streams[i]>>>(nodeLists[i], nodeList_size[i], num_threads, Ct);
+        update_velocity_RB<<<1,num_threads,0, streams[i]>>>(nodeLists[i], vertex_size_per_mesh[i], num_threads, Velocity_RB, ux_gpu, uy_gpu, uz_gpu, Ct, Cl);
+        update_position_RB<<<1,num_threads,0, streams[i]>>>(nodeLists[i], vertex_size_per_mesh[i], num_threads, Ct);
     }
     checkCudaErrors(cudaDeviceSynchronize());
 }
 
-__host__ void IBM_cleanup(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu,
-                          int num_mesh, Vertex **nodeLists)
+__host__ void IBM_cleanup(int num_mesh)
 {
-    cudaFree(Fx_gpu);
-    cudaFree(Fy_gpu);
-    cudaFree(Fz_gpu);
-    cudaFree(count_loc);
     for(int i=0;i<num_mesh;i++)
         cudaFree(nodeLists[i]);
     printf("Immersed Boundary object cleaned\n");

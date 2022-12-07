@@ -5,7 +5,10 @@ extern unsigned int SCR_HEIGHT;
 
 extern float Ct;
 extern float Cl;
-float *count_loc;
+
+extern Vertex **nodeLists;
+extern int *vertex_size_per_mesh;
+extern float *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu;
 
 int main(int argc, char* argv[])
 {
@@ -20,20 +23,14 @@ int main(int argc, char* argv[])
     float Re_lattice = 1000.0f;
     float viscosity =1.48e-3f;
     float spring_constant = 0.005f;
-    float tau_star = 0.55f;
 
     float *rho, *ux, *uy, *uz;
-    float *Fx_gpu, *Fy_gpu, *Fz_gpu;
-    float *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu;
-    float *f1_gpu, *f2_gpu, *feq_gpu, *source_term_gpu;
-    Vertex **nodeLists, **nodeData;
-
-    int *vertex_size_per_mesh;
+    Vertex **nodeData;
 
     // glm::f32vec3 mod_origin = glm::f32vec3(NX/2, NY/2, NZ/2);
     // glm::f32vec3 mod_scale = glm::f32vec3(2, 2, 2);
-    glm::f32vec3 mod_scale = glm::f32vec3(4, 4, 4);
-    glm::f32vec3 mod_origin = glm::f32vec3(NX/2, NY/2, NZ/2);
+    glm::f32vec3 mod_scale = glm::f32vec3(16, 16, 16);
+    glm::f32vec3 mod_origin = glm::f32vec3(20, 1, 20);
 
     glm::f32vec3 dis_scale = glm::f32vec3(2.0f/NX, 2.0f/NY, 2.0f/NZ);
     ResourceManager r_manager;
@@ -60,18 +57,15 @@ int main(int argc, char* argv[])
         cudaStreamCreate(&streams[i]);
     }
 
-    IBM_init(NX, NY, NZ,
-             &Fx_gpu, &Fy_gpu, &Fz_gpu,
-             num_mesh, nodeLists, 
-             vertex_size_per_mesh, nodeData, streams, spring_constant);
 
-    LB_init(NX, NY, NZ, Re_lattice, viscosity,
-            &f1_gpu, &f2_gpu, &feq_gpu, &source_term_gpu, 
-            &rho_gpu, &ux_gpu, &uy_gpu, &uz_gpu, 
-            &rho, &ux, &uy, &uz, 
-            &Fx_gpu, &Fy_gpu, &Fz_gpu,
-            streams, tau_star);
-
+    float total_size_allocated = 0;
+    total_size_allocated += LB_init(NX, NY, NZ, Re_lattice, viscosity, &rho, &ux, &uy, &uz, streams);
+    total_size_allocated+= IBM_init(NX, NY, NZ, num_mesh, nodeData, streams, spring_constant);
+    float byte_per_GB = powf(1024.0f, 3);
+    float Uc = (Re_lattice*viscosity/2.0f);
+    printf("Characteristic velocity %f\n", Uc);
+    printf("Total memory allocated in GPU: %f GB\n",total_size_allocated/byte_per_GB );
+    printf("...............................................................................\n");
     printf("Starting simulation .....\n");
     time_t cur_time1 = clock();
     time_t cur_time2 = clock();
@@ -80,50 +74,29 @@ int main(int argc, char* argv[])
     float delta_angle = 0;
     float current_angle = 0;
     float angular_vel = M_PI/6.0f;
-    float Uc = (Re_lattice*viscosity/2.0f);
-    printf("Characteristic velocity %f\n", Uc);
+    printf("\t Constants: %f %f \n", Ct, Cl);
+    float time_elapsed = 0.0f;
     while(!glfwWindowShouldClose(window))
     {
-        if(((float)(clock() - cur_time2))/CLOCKS_PER_SEC>1/30.0f)// && KK++<50)
-        // if(KK++<40)
+        //if( KK++<100)(((float)(clock() - cur_time2))/CLOCKS_PER_SEC>1.0f)
+        if(KK++<1000)
         {
-            delta_angle = ((clock() - (float)cur_time2)/CLOCKS_PER_SEC);
+            float del_time = ((clock() - (float)cur_time2)/CLOCKS_PER_SEC);
+            printf("Current Simulation time: %f \n", time_elapsed );
+            delta_angle = del_time*Ct;
             current_angle += delta_angle;
             if(current_angle>=2*M_PI)
                 current_angle = -2.0f*M_PI;
-            Velocity_RB = (Uc)*glm::f32vec3(angular_vel*cosf(angular_vel*current_angle), angular_vel*sinf(angular_vel*current_angle), angular_vel*sinf(angular_vel*current_angle));
-            update_IB_params(nodeLists, vertex_size_per_mesh, 128, num_mesh, Ct, Velocity_RB, ux_gpu, uy_gpu,uz_gpu, streams);
-            // LB_simulate(Fx_gpu, Fy_gpu, Fz_gpu, 
-            //         f1_gpu, f2_gpu, feq_gpu, source_term_gpu, 
-            //         rho_gpu, ux_gpu, uy_gpu, uz_gpu, 
-            //         NX, NY, NZ, IBM_force_spread, IBM_advect_bound,
-            //         nodeLists, vertex_size_per_mesh, 128, num_mesh, streams);
-
-            LB_simulate_RB(Fx_gpu, Fy_gpu, Fz_gpu, 
-                        f1_gpu, f2_gpu, feq_gpu, source_term_gpu, 
-                        rho_gpu, ux_gpu, uy_gpu, uz_gpu, 
-                        NX, NY, NZ, Ct, IBM_force_spread_RB, IBM_advect_bound,
-                        nodeLists, vertex_size_per_mesh, 128, num_mesh, streams);
-
-           
-
+            
+            Velocity_RB = glm::f32vec3(0.0f);//(Uc)*glm::f32vec3(angular_vel*cosf(angular_vel*current_angle), angular_vel*sinf(angular_vel*current_angle), angular_vel*sinf(angular_vel*current_angle));
+            update_IB_params(128, num_mesh, Ct, Cl, Velocity_RB, streams);
+            LB_simulate_RB(NX, NY, NZ, Ct, IBM_force_spread_RB, IBM_advect_bound, 128, num_mesh, streams);
             cur_time2 = clock();
+            time_elapsed += Ct;
             
         }
         if(((float)(clock() - cur_time1))/CLOCKS_PER_SEC>1/30.0f)
         {
-            // display( rho, ux, uy, uz,
-            //         rho_gpu, count_loc, count_loc, count_loc,
-            //         NX, NY, NZ, 
-            //         myfluid, mod_scale, dis_scale,
-            //         &window, ourShader, ourModel, fluidDomain,
-            //         num_mesh, nodeLists, vertex_size_per_mesh, streams);
-            // display( rho, ux, uy, uz,
-            //     rho_gpu, Fx_gpu, Fy_gpu, Fz_gpu,
-            //     NX, NY, NZ, 
-            //     myfluid, mod_scale, dis_scale,
-            //     &window, ourShader, ourModel, fluidDomain,
-            //     num_mesh, nodeLists, vertex_size_per_mesh, streams);
             display( rho, ux, uy, uz,
                     rho_gpu, ux_gpu, uy_gpu, uz_gpu,
                     NX, NY, NZ, 
@@ -135,9 +108,9 @@ int main(int argc, char* argv[])
        
     }
     
-    IBM_cleanup(Fx_gpu, Fy_gpu, Fz_gpu, num_mesh, nodeLists);
+    IBM_cleanup(num_mesh);
 
-    LB_cleanup(f1_gpu, f2_gpu, feq_gpu, source_term_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    LB_cleanup();
 
     scene_cleanup(nodeLists, nodeData, vertex_size_per_mesh, rho, ux, uy, uz);
 

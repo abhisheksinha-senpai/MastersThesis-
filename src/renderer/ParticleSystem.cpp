@@ -33,17 +33,12 @@ void ParticleSystem::update_particles(int NX, int NY, int NZ, float *rho, float 
 {
     for(int i=0;i<fluid.size();i++)
     {
-        // float x = (fluid[i].Position.x+1.0f)*NX/model_scale.x;
-        // float y = (fluid[i].Position.y+1.0f)*NY/model_scale.y;
-        // float z = (fluid[i].Position.z+1.0f)*NZ/model_scale.z;
         float x = (fluid[i].Position.x);
         float y = (fluid[i].Position.y);
         float z = (fluid[i].Position.z);
         int loc = (int)(x+y*NX+z*NX*NY);
-        //fluid[i].Color = glm::vec4(abs(ux[loc])/10000, abs(uy[loc])/10000, abs(uz[loc])/10000, abs(glm::length(glm::f32vec3(ux[loc], uy[loc], uz[loc]))));
-         fluid[i].Color = glm::vec4(abs(ux[loc])*100, abs(uy[loc])*100, abs(uz[loc])*100, 100*abs(glm::length(glm::f32vec3(ux[loc], uy[loc], uz[loc]))));
-        // float val = 10*sqrt(powf(abs(ux[loc]),2)+powf(abs(uy[loc]),2.0f)+powf(abs(uz[loc]),2.0f));
-        //  fluid[i].Color = glm::vec4(val, val, val, 10*abs(val));
+        float val = rho[loc]/((int)(abs(rho[loc])));
+        fluid[i].Color = glm::vec4( 100*ux[loc],100*uy[loc],100*uz[loc], rho[loc]>0.5f);
     }
 } 
 

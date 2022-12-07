@@ -1,6 +1,7 @@
 #ifndef PARTICLE_SYSTEM_H_
 #define PARTICLE_SYSTEM_H_
 
+#include "Definitions.hpp"
 #include "Particle.hpp"
 #include "Shader.hpp"
 #include "ResourceManager.hpp"

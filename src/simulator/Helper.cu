@@ -52,7 +52,7 @@ __host__ void display_init(GLFWwindow** window)
         return;
     }
     stbi_set_flip_vertically_on_load(true);
-    //glEnable(GL_DEPTH_TEST);
+    glEnable(GL_DEPTH_TEST);
     glfwSetInputMode(*window, GLFW_CURSOR, GLFW_CURSOR_NORMAL );
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable( GL_BLEND );
@@ -98,28 +98,26 @@ void domain_init(int NX, int NY, int NZ,
             for(int k=0;k<NZ;k++)
             {
                 loc = i+j*NX+k*NX*NY;
-                (*rho)[loc] = 1.0f;
-                (*ux)[loc] = 0.0f;
-                (*uy)[loc] = 0.0f;
-                (*uz)[loc] = 0.0f;
+                if(i == 0 || j == 0 || k == 0 || i == NX-1 || j == NY-1 || k == NZ-1)
+                {
+                    (*rho)[loc] = -9999.0f;
+                    (*ux)[loc] = 0.0f;
+                    (*uy)[loc] = 0.0f;
+                    (*uz)[loc] = 0.0f;
+                }
+                else
+                {
+                    if(i<4*NX/8 && j<3*NY/4)
+                        (*rho)[loc] = 1.0f;
+                    else
+                        (*rho)[loc] = 0.00001f;
+                    (*ux)[loc] = 0.0f;
+                    (*uy)[loc] = 0.0f;
+                    (*uz)[loc] = 0.0f;
+                }
             }
         }
     }
-
-    // for(int i =0;i<obj.meshes.size();i++)
-    // {
-    //     for(int j=0;j<obj.meshes[i].size();j++)
-    //     {
-    //         X1 = (int)obj.meshes[i][j].Position.x;
-    //         Y1 = (int)obj.meshes[i][j].Position.y;
-    //         Z1 = (int)obj.meshes[i][j].Position.z;
-    //         loc  = i+j*NX+k*NX*NY;
-    //         (*ux)[loc] = obj.meshes[i][j].Base_Vel.x;
-    //         (*uy)[loc] = obj.meshes[i][j].Base_Vel.z;
-    //         (*uz)[loc] = obj.meshes[i][j].Base_Vel.z;
-
-    //     }
-    // }
     printf("Domain initialized...\n");
 }
 
@@ -247,12 +245,18 @@ __host__ void draw_model( GLFWwindow* window, Shader& shader, Model& objmodel,
     model = glm::mat4(1);
 }
 
+extern float *mass_gpu;
+extern float *delMass;
+extern float *Fx_gpu;
+extern float *Fy_gpu;
+extern float *Fz_gpu;
+
 __host__ void transfer_fluid_data(float *rho, float*ux, float *uy,float *uz,
                                   float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu, 
                                   int NX, int NY, int NZ)
 {
     int sz = NX*NY*NZ*sizeof(float);
-    cudaMemcpy(rho, (void *)rho_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(rho, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
     cudaMemcpy(ux, (void *)ux_gpu, sz, cudaMemcpyDeviceToHost);
     cudaMemcpy(uy, (void *)uy_gpu, sz, cudaMemcpyDeviceToHost);
     cudaMemcpy(uz, (void *)uz_gpu, sz, cudaMemcpyDeviceToHost);
@@ -267,7 +271,7 @@ __host__ void draw_fluid(float *rho, float*ux, float *uy, float *uz,
                         rho_gpu, ux_gpu, uy_gpu, uz_gpu,
                         NX, NY, NZ);
     
-    fluid.update_particles(NX, NY, NZ, rho, ux, uy, uz, model_scale);
+    fluid.update_particles(NX, NY, NZ, rho, ux,uy,uz, model_scale);
     fluid.draw_particles(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp, dis_scale);
 }
 int n = 0;
@@ -280,7 +284,7 @@ __host__ void display ( float *rho, float*ux, float *uy, float *uz,
                         int *vertex_size_per_mesh,
                         cudaStream_t *streams)
 {
-    glClearColor(0.45f, 0.85f, 0.15f, 0.05f);
+    glClearColor(0.35f, 0.15f, 0.35f, 0.05f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     draw_model( *window, shader, model, dis_scale, 
