@@ -1188,46 +1188,4 @@ __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct,
     checkCudaErrors(cudaDeviceSynchronize());
     printf("\n");
 }
-// __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct,
-//                             void (*cal_force_spread_RB)(int, int, float, cudaStream_t *), 
-//                             void (*advect_velocity)(int, int, cudaStream_t *),
-//                             int num_threads, int num_mesh, cudaStream_t *streams)
-// {
-//     dim3 nthx(nThreads.x, nThreads.y, nThreads.z);
-//     dim3 ngrid(NX/nthx.x, NY/nthx.y, NZ/nthx.z);
-
-    // LB_reset_max(streams);
-    // LB_clear_Forces(streams, NX, NY, NZ);
-    // LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu, mass_gpu);
-    // checkCudaErrors(cudaDeviceSynchronize());
-    // advect_velocity(num_threads, num_mesh, streams);
-    // checkCudaErrors(cudaDeviceSynchronize());
-    // cal_force_spread_RB(num_threads, num_mesh, Ct, streams);
-    // checkCudaErrors(cudaDeviceSynchronize());
-    // LB_compute_stress<<<ngrid, nthx>>>(source_term_gpu, f1_gpu, feq_gpu, strain_rate_gpu);
-    // checkCudaErrors(cudaDeviceSynchronize());
-    // LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
-    // checkCudaErrors(cudaDeviceSynchronize());
-
-//     LB_add_gravity<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, temp_cell_type_gpu);
-//     LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu);
-//     update_fluid_cell_type<<<ngrid, nthx>>>(rho_gpu, mass_gpu, cell_type_gpu);
-//     LB_compute_equi_distribution<<<ngrid, nthx>>>(rho_gpu, ux_gpu, uy_gpu, uz_gpu, feq_gpu, cell_type_gpu);
-//     LB_compute_source_term<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, source_term_gpu, ux_gpu, uy_gpu, uz_gpu, strain_rate_gpu, cell_type_gpu);
-//     LB_collide<<<ngrid, nthx>>>(f1_gpu, f2_gpu, feq_gpu, source_term_gpu, strain_rate_gpu, cell_type_gpu);
-//     LB_stream<<<ngrid, nthx>>>(f1_gpu, f2_gpu, mass_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu, 0.5f);
-//     LB_enforce_boundary_wall<<<ngrid, nthx>>>(f1_gpu, f2_gpu, cell_type_gpu);
-//     calculate_cell_mass_exchange<<<ngrid, nthx>>>(temp_cell_type_gpu, mass_gpu, rho_gpu, f1_gpu, delMass, ux_gpu, uy_gpu, uz_gpu);
-//     update_interface_cell_mass<<<ngrid, nthx>>>(delMass, mass_gpu, rho_gpu, temp_cell_type_gpu);
-//     update_empty_cells_nb<<<ngrid, nthx>>>(cell_type_gpu, temp_cell_type_gpu);
-//     update_filled_cell_nb<<<ngrid, nthx>>>(empty_filled_cell, cell_type_gpu, f1_gpu, rho_gpu, ux_gpu, uy_gpu,uz_gpu);
-//     distribute_excess_mass<<<ngrid, nthx>>>(mass_gpu, rho_gpu, temp_cell_type_gpu);
-
-//     printf("After boundary wall conditions\n");
-//     update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
-//     update_max_mass<<<ngrid, nthx>>>(mass_gpu);
-//     checkCudaErrors(cudaDeviceSynchronize());
-//     check_max_params<<<1,1>>>();
-//     checkCudaErrors(cudaDeviceSynchronize());
-// }
 #endif
