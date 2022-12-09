@@ -10,6 +10,26 @@
 
 const dim3 nThreads(64, 1, 1);
 
+extern float *Fx_gpu, *Fy_gpu, *Fz_gpu;
+extern float *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu;
+extern float *f1_gpu, *f2_gpu, *feq_gpu, *source_term_gpu;
+extern float *mass_gpu, *strain_rate_gpu, *delMass;
+extern float *empty_filled_cell;
+//cell Type: 0-fluid, 1-interface, 2-gas, 3-obstacle
+extern unsigned int *cell_type_gpu;
+extern float *temp_cell_type_gpu;
+extern float *count_loc;
+
+__device__ unsigned int FLUID = (unsigned int)(1 << 0);
+__device__ unsigned int  INTERFACE  = (unsigned int)(1 << 1);
+__device__ unsigned int  EMPTY =  (unsigned int)(1 << 2);
+__device__ unsigned int  OBSTACLE =  (unsigned int)(1 << 3);
+__device__ unsigned int  NO_FLUID_NEIGH =  (unsigned int)(1 << 4);
+__device__ unsigned int  NO_EMPTY_NEIGH =  (unsigned int)(1 << 5);
+__device__ unsigned int  NO_IFACE_NEIGH =  (unsigned int)(1 << 6);
+__device__ unsigned int  IF_TO_FLUID =  (unsigned int)(1 << 7);
+__device__ unsigned int  IF_TO_EMPTY =  (unsigned int)(1 << 8);
+
 #define checkCudaErrors(err)  __checkCudaErrors(err,#err,__FILE__,__LINE__)
 #define getLastCudaError(msg)  __getLastCudaError(msg,__FILE__,__LINE__)
 

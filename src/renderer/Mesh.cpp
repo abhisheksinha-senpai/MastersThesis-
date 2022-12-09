@@ -79,6 +79,7 @@ void Mesh::Draw(Shader &shader, glm::f32vec3 scale)
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, TexCoords));
     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     glDrawElements(GL_TRIANGLES, this->indices.size(), GL_UNSIGNED_INT, 0);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     model = glm::mat4(1.0f);
     glUniformMatrix4fv(glGetUniformLocation(shader.get_shader_pgm(), "model"), 1, GL_FALSE, glm::value_ptr(model));
     glBindVertexArray(0);

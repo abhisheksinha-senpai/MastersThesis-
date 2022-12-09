@@ -1,6 +1,11 @@
 #include "ParticleSystem.hpp"
 
-ParticleSystem::ParticleSystem(int NX, int NY, int NZ, glm::f32vec3 model_scale, float *rho)
+unsigned int FLUID = (unsigned int)(1 << 0);
+unsigned int  INTERFACE  = (unsigned int)(1 << 1);
+unsigned int  EMPTY =  (unsigned int)(1 << 2);
+unsigned int  OBSTACLE =  (unsigned int)(1 << 3);
+
+ParticleSystem::ParticleSystem(int NX, int NY, int NZ, glm::f32vec3 model_scale, float *mass)
 {
     ResourceManager r_manager = ResourceManager();
     r_manager.load_shader("resources/shaders/vertex/domain_shader.vs", "VERTEX", fluidShader.vertex_shader);
@@ -15,10 +20,10 @@ ParticleSystem::ParticleSystem(int NX, int NY, int NZ, glm::f32vec3 model_scale,
         {
             for(int k=0;k<NZ;k++)
             {
-                //glm::f32vec3 position = glm::f32vec3((float)i*(model_scale.x/NX)-1.0f,(float)j*(model_scale.y/NY)-1.0f,(float)k*(model_scale.z/NZ)-1.0f);
+                //marching_cube(i, j, k, NX, NY, NZ, mass, fluid);
                 glm::f32vec3 position = glm::f32vec3((float)i,(float)j,(float)k);
                 int loc = i+j*NX+k*NX*NY;
-                glm::f32vec4 color = glm::vec4(1.0f, 1.0f, 1.0f, rho[loc]);
+                glm::f32vec4 color = glm::vec4(1.0f, 1.0f, 1.0f, mass[loc]);
                 Drop d{position, color};
                 fluid.push_back(d);
             }
@@ -29,16 +34,27 @@ ParticleSystem::ParticleSystem(int NX, int NY, int NZ, glm::f32vec3 model_scale,
     printf("Fluids initiliazed.....\n");
 }
 
-void ParticleSystem::update_particles(int NX, int NY, int NZ, float *rho, float *ux, float *uy, float *uz, glm::f32vec3 model_scale)
+void ParticleSystem::update_particles(int NX, int NY, int NZ, float *mass, float *ux, float *uy, float *uz, glm::f32vec3 model_scale)
 {
+    // std::vector<Drop>().swap(fluid);
+    // for(int i=0;i<NX;i++)
+    // {
+    //     for(int j=0;j<NY;j++)
+    //     {
+    //         for(int k=0;k<NZ;k++)
+    //         {
+    //             marching_cube(i, j, k, NX, NY, NZ, mass, fluid);
+    //         }
+    //     }
+    // }
     for(int i=0;i<fluid.size();i++)
     {
         float x = (fluid[i].Position.x);
         float y = (fluid[i].Position.y);
         float z = (fluid[i].Position.z);
         int loc = (int)(x+y*NX+z*NX*NY);
-        float val = rho[loc]/((int)(abs(rho[loc])));
-        fluid[i].Color = glm::vec4( 100*ux[loc],100*uy[loc],100*uz[loc], rho[loc]>0.5f);
+        float vel = glm::length(glm::f32vec3(ux[loc], uy[loc], uz[loc]));
+        fluid[i].Color = glm::vec4(10*vel, 10*vel, 10*vel, mass[loc]>0.5);
     }
 } 
 
@@ -66,10 +82,9 @@ void ParticleSystem::draw_particles(int SCR_WIDTH, int SCR_HEIGHT, glm::vec3 cam
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Drop), (void*)offsetof(Drop, Color));
     glPointSize(5);
     glDrawArrays(GL_POINTS , 0, fluid.size());
-    glBindVertexArray(0);
+    // glDrawArrays(GL_TRIANGLES , 0, fluid.size());
     glPointSize(1);
-    // glDeleteBuffers(1, &VBO_1);
-    // glDeleteVertexArrays(1, &VAO_1);
+    glBindVertexArray(0);
 }
 
 ParticleSystem::~ParticleSystem()

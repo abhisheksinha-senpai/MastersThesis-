@@ -6,10 +6,6 @@ __device__ float spring_constant;
 Vertex **nodeLists;
 int *vertex_size_per_mesh;
 
-extern float *count_loc;
-extern float *Fx_gpu, *Fy_gpu, *Fz_gpu;
-extern float *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu;
-
 __device__ float calculate_kernel_phi(float x, int type)
 {
     if(type == 1)
@@ -42,7 +38,7 @@ __device__ float calculate_kernel_phi(float x, int type)
 }
 
 __global__ void spread_fluid_velocity(Vertex *nodeLists, int vertexList_size, int num_threads,
-                                      float *ux_gpu, float *uy_gpu, float *uz_gpu)
+                                      float *ux_gpu, float *uy_gpu, float *uz_gpu, unsigned int *cell_type_gpu)
 {
     int id = threadIdx.x + blockIdx.x * blockDim.x;
     float phi = 0.0f;
@@ -54,7 +50,6 @@ __global__ void spread_fluid_velocity(Vertex *nodeLists, int vertexList_size, in
         float X1 = nodeLists[p].Position.x;
         float Y1 = nodeLists[p].Position.y;
         float Z1 = nodeLists[p].Position.z;
-        //printf(" (%f %f %f) ",X1, Y1, Z1);
 
         glm::f32vec3 vel = glm::f32vec3(0.0f);
 
@@ -64,21 +59,28 @@ __global__ void spread_fluid_velocity(Vertex *nodeLists, int vertexList_size, in
             {
                 for(int k=-2;k<=2;k++)
                 {
-                    coord = gpu_scalar_index((int)(X1+i), (int)(Y1+j), abs((int)(Z1+k)), sim_domain);
-                    ux = ux_gpu[coord];
-                    uy = uy_gpu[coord];
-                    uz = uz_gpu[coord];
-                    float deltaX = X1-(X1+(float)i);
-                    float deltaY = Y1-(Y1+(float)j);
-                    float deltaZ = Z1-(Z1+(float)k);
-                    phi = calculate_kernel_phi(abs(deltaX), 3)*calculate_kernel_phi(abs(deltaY), 3)*calculate_kernel_phi(abs(deltaZ), 3);
-                    vel.x += ux*phi;
-                    vel.y += uy*phi;
-                    vel.z += uz*phi;
+                    coord = gpu_scalar_index((int)(X1+(float)i), (int)(Y1+(float)j), (int)(Z1+(float)k), sim_domain);
+                    if(cell_type_gpu[coord] & (INTERFACE|FLUID))
+                    {
+                        ux = ux_gpu[coord];
+                        uy = uy_gpu[coord];
+                        uz = uz_gpu[coord];
+                        float deltaX = X1-(X1+(float)i);
+                        float deltaY = Y1-(Y1+(float)j);
+                        float deltaZ = Z1-(Z1+(float)k);
+                        phi = calculate_kernel_phi(abs(deltaX), 3)*calculate_kernel_phi(abs(deltaY), 3)*calculate_kernel_phi(abs(deltaZ), 3);
+                        vel.x += ux*phi;
+                        vel.y += uy*phi;
+                        vel.z += uz*phi;
+                        // if(glm::length(glm::f32vec3(ux, uy, uz))>0)
+                        //     printf(" (%f %f %f) ", ux, uy, uz);
+                    }
                 }
             }
         }
         nodeLists[p].Velocity = vel;
+        // if(glm::length(vel)>0)
+        //     printf(" (%f %f %f) ", vel.x, vel.y, vel.z);
         //nodeLists[p].Position += vel;
     }
 }
@@ -145,7 +147,8 @@ __global__ void calculate_force_spreading_per_mesh(Vertex *nodeLists, int vertex
 
 __global__ void calculate_force_spreading_RB_per_mesh(Vertex *nodeLists, int vertexList_size, int num_threads,
                                                       float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, float Ct,
-                                                      float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu, float *count_loc)
+                                                      float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu, float *count_loc, 
+                                                      unsigned int *cell_type_gpu)
 {
     int id = threadIdx.x + blockIdx.x * blockDim.x;
     float phi = 0.0f;
@@ -160,30 +163,34 @@ __global__ void calculate_force_spreading_RB_per_mesh(Vertex *nodeLists, int ver
         float Y1 = nodeLists[p].Position.y;
         float Z1 = nodeLists[p].Position.z;
         coord = gpu_scalar_index((int)(X1), (int)(Y1), (int)(Z1), sim_domain);
-        fj = 2.0f*rho_gpu[coord]*( nodeLists[p].Base_Vel - nodeLists[p].Velocity)*0.1f;
+        fj = 2.0f*rho_gpu[coord]*( nodeLists[p].Base_Vel - nodeLists[p].Velocity)*nodeLists[p].Area*(2.0f/powf(sim_domain[0], 1.0f));
 
-        for(int i=-1;i<=2;i++)
+        for(int i=-2;i<=2;i++)
         {
-            for(int j=-1;j<=2;j++)
+            for(int j=-2;j<=2;j++)
             {
-                for(int k=-1;k<=2;k++)
+                for(int k=-2;k<=2;k++)
                 {
                     coord = gpu_scalar_index((int)(X1+(float)i), (int)(Y1+(float)j), (int)(Z1+(float)k), sim_domain);
-                    float deltaX = X1-(float)((int)(X1+(float)i));
-                    float deltaY = Y1-(float)((int)(Y1+(float)j));
-                    float deltaZ = Z1-(float)((int)(Z1+(float)k));
-                    phi = calculate_kernel_phi(abs(deltaX), 3)*calculate_kernel_phi(abs(deltaY), 3)*calculate_kernel_phi(abs(deltaZ), 3);
-                    
-                    if(phi>0)
+                    if(cell_type_gpu[coord] & (INTERFACE|FLUID))
                     {
-                        atomicAdd(&(count_loc[coord]),1.0f);
+                        float deltaX = X1-(float)((int)(X1+(float)i));
+                        float deltaY = Y1-(float)((int)(Y1+(float)j));
+                        float deltaZ = Z1-(float)((int)(Z1+(float)k));
+                        phi = calculate_kernel_phi(abs(deltaX), 3)*calculate_kernel_phi(abs(deltaY), 3)*calculate_kernel_phi(abs(deltaZ), 3);
+                        
+                        if(phi>0)
                         {
-                            atomicAdd(&(Fx_gpu[coord]),fj.x*phi);
-                            atomicAdd(&(Fy_gpu[coord]),fj.y*phi);
-                            atomicAdd(&(Fz_gpu[coord]),fj.z*phi);
+                            atomicAdd(&(count_loc[coord]),1.0f);
+                            {
+                                // if(glm::length(fj)>0)
+                                //     printf("(%f %f %f)", nodeLists[p].Area, rho_gpu[coord],nodeLists[p].Velocity  );
+                                atomicAdd(&(Fx_gpu[coord]),fj.x*phi);
+                                atomicAdd(&(Fy_gpu[coord]),fj.y*phi);
+                                atomicAdd(&(Fz_gpu[coord]),fj.z*phi);
+                            }
                         }
                     }
-                    //printf("(%f | %f |  %d %d %d |%f %f %f) ",Fx_gpu[coord], phi, (int)(X1+i), (int)(Y1+j), (int)(Z1+k), X1-((int)(X1)+i), Y1-((int)(Y1)+j), Z1-((int)(Z1)+k));
                 }
             }
         }
@@ -245,14 +252,15 @@ __host__ void IBM_force_spread_RB(int num_threads, int num_mesh, float Ct, cudaS
 {
     for(int i=0;i<num_mesh;i++)
         calculate_force_spreading_RB_per_mesh<<<1,num_threads,0, streams[i]>>>(nodeLists[i], vertex_size_per_mesh[i],
-                                                          num_threads, Fx_gpu, Fy_gpu, Fz_gpu, Ct, rho_gpu, ux_gpu, uy_gpu, uz_gpu, count_loc);
+                                                          num_threads, Fx_gpu, Fy_gpu, Fz_gpu, Ct, rho_gpu, ux_gpu, uy_gpu, uz_gpu, count_loc, 
+                                                          cell_type_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
 }
 
 __host__ void IBM_advect_bound(int num_threads, int num_mesh, cudaStream_t *streams)
 {
     for(int i=0;i<num_mesh;i++)
-        spread_fluid_velocity<<<1,num_threads,0, streams[i]>>>(nodeLists[i], vertex_size_per_mesh[i], num_threads, ux_gpu, uy_gpu, uz_gpu);
+        spread_fluid_velocity<<<1,num_threads,0, streams[i]>>>(nodeLists[i], vertex_size_per_mesh[i], num_threads, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
 }
 

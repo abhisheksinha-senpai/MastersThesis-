@@ -19,7 +19,7 @@ CPP_FLAGS = -I$(RENDER) -I$(EXT) -I. -std=c++11 -w -lcudart -O3
 _CPPDEPS = Definitions.hpp Shader.hpp ResourceManager.hpp Mesh.hpp Model.hpp ParticleSystem.hpp Particle.hpp Domain.hpp
 CPPDEPS = $(patsubst %,$(RENDER)/%,$(_CPPDEPS))
 
-_CPPOBJECTS = ResourceManager.o Shader.o Mesh.o Model.o ParticleSystem.o Domain.o
+_CPPOBJECTS = ResourceManager.o Shader.o Mesh.o Model.o ParticleSystem.o Domain.o Surface.o
 CPPOBJECTS = $(patsubst %,$(ODIR)/%,$(_CPPOBJECTS))
 
 $(ODIR)/%.o: $(SDIR)/renderer/%.cpp $(CPPDEPS)

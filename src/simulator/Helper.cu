@@ -114,6 +114,14 @@ void domain_init(int NX, int NY, int NZ,
                     (*ux)[loc] = 0.0f;
                     (*uy)[loc] = 0.0f;
                     (*uz)[loc] = 0.0f;
+
+                    // if(j<1*NY/4)
+                    //     (*rho)[loc] = 1.0f;
+                    // else
+                    //     (*rho)[loc] = 0.001f;
+                    // (*ux)[loc] = 0.0f;
+                    // (*uy)[loc] = 0.0f;
+                    // (*uz)[loc] = 0.0f;
                 }
             }
         }
@@ -245,12 +253,6 @@ __host__ void draw_model( GLFWwindow* window, Shader& shader, Model& objmodel,
     model = glm::mat4(1);
 }
 
-extern float *mass_gpu;
-extern float *delMass;
-extern float *Fx_gpu;
-extern float *Fy_gpu;
-extern float *Fz_gpu;
-
 __host__ void transfer_fluid_data(float *rho, float*ux, float *uy,float *uz,
                                   float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu, 
                                   int NX, int NY, int NZ)
@@ -268,10 +270,10 @@ __host__ void draw_fluid(float *rho, float*ux, float *uy, float *uz,
                          ParticleSystem &fluid, glm::f32vec3 model_scale, glm::f32vec3 dis_scale)
 {
     transfer_fluid_data(rho, ux, uy, uz,
-                        rho_gpu, ux_gpu, uy_gpu, uz_gpu,
+                        mass_gpu, ux_gpu, uy_gpu, uz_gpu,
                         NX, NY, NZ);
     
-    fluid.update_particles(NX, NY, NZ, rho, ux,uy,uz, model_scale);
+    fluid.update_particles(NX, NY, NZ, rho, ux, uy, uz, model_scale);
     fluid.draw_particles(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp, dis_scale);
 }
 int n = 0;
@@ -287,37 +289,31 @@ __host__ void display ( float *rho, float*ux, float *uy, float *uz,
     glClearColor(0.35f, 0.15f, 0.35f, 0.05f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    draw_model( *window, shader, model, dis_scale, 
-                num_mesh, nodeLists, vertex_size_per_mesh, streams);
+    //draw_model( *window, shader, model, dis_scale, 
+                // num_mesh, nodeLists, vertex_size_per_mesh, streams);
 
-    fluidDomain.draw_geometry(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp);
+    //fluidDomain.draw_geometry(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp);
     
     draw_fluid(rho, ux, uy,uz,
-               rho_gpu, ux_gpu, uy_gpu, uz_gpu,
+               mass_gpu, ux_gpu, uy_gpu, uz_gpu,
                NX, NY, NZ, 
                fluid, mod_scale, dis_scale);
 
-    // n++;
-    // if((n%10000) == 0)
-    // {
-    //     std::ofstream o;
-    //     char filename[128];
-    //     char format[32];
-    //     sprintf(filename,"00_%s_%d.csv","output",n);
-    //     o.open(filename);
-    //     for(int i=0;i<NZ;i++)
-    //     {
-    //         for(int j=0;j<NY;j++)
-    //         {
-    //             //setprecision(5);
-    //             for(int k = 0;k<NX;k++)
-    //                 o<<rho[i*(NX*NY) + NX*j + k]<<","<<ux[i*(NX*NY) + NX*j + k]<<","<<uy[i*(NX*NY) + NX*j + k]<<","<<uz[i*(NX*NY) + NX*j + k]<<","<<i<<","<<j<<","<<k<<std::endl;
-    //         }
-    //     }
-    //     o<<std::endl;
-    //     o.close();
-    // }
     processInput(*window);
     glfwPollEvents();
     glfwSwapBuffers(*window);
+}
+
+void generate_surface(int NX, int NY, int NZ)
+{
+    for(int j=0;j<NY;j++)
+    {
+        for(int i=0;i<NX;i++)
+        {
+            for(int k=0;k<NZ;k++)
+            {
+
+            }
+        }
+    }
 }

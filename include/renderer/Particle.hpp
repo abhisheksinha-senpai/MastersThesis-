@@ -9,4 +9,6 @@ struct Drop
     glm::f32vec4 Color;
 };
 
+GLvoid marching_cube(int idx, int idy, int idz, int NX, int NY, int NZ, float *mass, std::vector<Drop> &fluid);
+
 #endif // !PARTICLE_H_

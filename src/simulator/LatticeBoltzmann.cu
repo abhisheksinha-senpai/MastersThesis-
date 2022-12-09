@@ -1,13 +1,14 @@
 #include "LatticeBoltzmann.cuh"
 
 __device__ const float RHO_ATM = 0.0001f;
+__device__ const float RHO_FLUID = 1.0f;
 __device__ const float GRAV_CONST = 0.01f;
 __device__ const float SMAGRINSKY_CONST = 0.01;
-__device__ const float FILL_OFFSET = 0.001f;
+__device__ const float FILL_OFFSET = 0.01f;
 __device__ const float LONELY_THRESH = 0.1f;
 
 __device__ float cs_inv_sq = 3.0f;
-__device__ float non_dim_tau = 1.5f;
+__device__ float non_dim_tau;// = 1.5f;
 __device__ float non_dim_nu;
 
 
@@ -30,29 +31,19 @@ __device__ float max_Fy = -9999.0f;
 __device__ float max_Fz = -9999.0f;
 __device__ float max_mass = -9999.0f;
 
-__device__ unsigned int FLUID = (unsigned int)(1 << 0);
-__device__ unsigned int  INTERFACE  = (unsigned int)(1 << 1);
-__device__ unsigned int  EMPTY =  (unsigned int)(1 << 2);
-__device__ unsigned int  OBSTACLE =  (unsigned int)(1 << 3);
-__device__ unsigned int  NO_FLUID_NEIGH =  (unsigned int)(1 << 4);
-__device__ unsigned int  NO_EMPTY_NEIGH =  (unsigned int)(1 << 5);
-__device__ unsigned int  NO_IFACE_NEIGH =  (unsigned int)(1 << 6);
-__device__ unsigned int  IF_TO_FLUID =  (unsigned int)(1 << 7);
-__device__ unsigned int  IF_TO_EMPTY =  (unsigned int)(1 << 8);
-
 
 float Ct;
 float Cl;
 
 float *count_loc;
-
 float *Fx_gpu, *Fy_gpu, *Fz_gpu;
 float *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu;
 float *f1_gpu, *f2_gpu, *feq_gpu, *source_term_gpu;
 float *mass_gpu, *strain_rate_gpu, *delMass;
 float *empty_filled_cell;
 //cell Type: 0-fluid, 1-interface, 2-gas, 3-obstacle
-unsigned int *cell_type_gpu, *temp_cell_type_gpu;
+unsigned int *cell_type_gpu;
+float *temp_cell_type_gpu;
 
 __device__ static float atomicMax(float* address, float val)
 {
@@ -133,16 +124,18 @@ __global__ void cell_initialize(float *mass_gpu, unsigned int *cell_type_gpu, fl
     if(idx == 0 || idy == 0 || idz == 0 || idx == NX-1 || idy == NY-1 || idz == NZ-1)
     {
         cell_type_gpu[x_] = OBSTACLE;
-        mass_gpu[x_] = rho_gpu[x_];
+        mass_gpu[x_] = 100.0f*rho_gpu[x_];
     }
     else if(rho_gpu[x_]<=RHO_ATM)
     {
         cell_type_gpu[x_] = EMPTY;
         mass_gpu[x_] = 0.0f;
+        rho_gpu[x_] = RHO_ATM;
     }
-    else if(rho_gpu[x_]==1.0f)
+    else if(rho_gpu[x_]>=RHO_FLUID)
     {
         cell_type_gpu[x_] = FLUID;
+        rho_gpu[x_] = RHO_FLUID;
         mass_gpu[x_] = rho_gpu[x_];
     }
 }
@@ -167,8 +160,8 @@ __global__ void construct_interface(unsigned int *cell_type_gpu, float *mass_gpu
             if(!(cell_type_gpu[nb] & OBSTACLE) && (cell_type_gpu[nb] & EMPTY))
             {
                 cell_type_gpu[nb] = INTERFACE;
-                rho_gpu[nb] = 0.1f;
-                mass_gpu[nb] = 0.1f;
+                rho_gpu[nb] = RHO_FLUID;
+                mass_gpu[nb] = 0.0f;
                 
             }
         }
@@ -197,13 +190,11 @@ __global__ void update_fluid_cell_type(float *rho_gpu, float *mass_gpu, unsigned
     {
         if((mass_gpu[x_]>=(1.0f + FILL_OFFSET)*rho_gpu[x_]) || (mass_gpu[x_]>=(1-LONELY_THRESH)*rho_gpu[x_] && (temp_cell_type_gpu[x_] & NO_EMPTY_NEIGH)))
         {
-            //printf("%d %d %d ", idx, idy, idz);
-            temp_cell_type_gpu[x_] = IF_TO_FLUID;
+            temp_cell_type_gpu[x_] |= IF_TO_FLUID;
         }
         else if((mass_gpu[x_]<=(0.0f - FILL_OFFSET)*rho_gpu[x_]) || (mass_gpu[x_]<=(LONELY_THRESH)*rho_gpu[x_] && (temp_cell_type_gpu[x_] & NO_FLUID_NEIGH)) || ((temp_cell_type_gpu[x_] & NO_IFACE_NEIGH) && (temp_cell_type_gpu[x_] & NO_FLUID_NEIGH)))
         {
-            //printf("%d %d %d ", idx, idy, idz);
-            temp_cell_type_gpu[x_] = IF_TO_EMPTY;
+            temp_cell_type_gpu[x_] |= IF_TO_EMPTY;
         }
     }
     temp_cell_type_gpu[x_] &= ~(NO_FLUID_NEIGH | NO_EMPTY_NEIGH | NO_IFACE_NEIGH);
@@ -236,7 +227,7 @@ __device__ void initialize_empty_nb_DF(int idx, int idy, int idz, float *f1_gpu,
         ux = ux/count_nb;
         uy = uy/count_nb;
         uz = uz/count_nb;
-        mass = mass/count_nb;
+        //mass = mass/count_nb;
     }
     for(int i=0;i<19;i++)
         f1_gpu[gpu_fieldn_index(idx, idy, idz, i, lb_sim_domain)] = calculate_gas_DF(rho, ux, uy, uz, i);
@@ -244,7 +235,7 @@ __device__ void initialize_empty_nb_DF(int idx, int idy, int idz, float *f1_gpu,
     uy_gpu[x_] = uy;
     uz_gpu[x_] = uz;
     rho_gpu[x_] = rho;
-    //mass_gpu[x_] = mass;
+    mass_gpu[x_] = 0.0f;
 }
 
 __global__ void update_filled_cell_nb_DF(unsigned int *temp_cell_type_gpu, float *f1_gpu, float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz_gpu, float *mass_gpu)
@@ -371,13 +362,12 @@ __global__ void distribute_excess_mass(float *mass_gpu, float *rho_gpu, unsigned
                 nb = gpu_scalar_index((idx+NX+cx[i])%NX, (idy+NY+cy[i])%NY, (idz+NZ+cz[i])%NZ, lb_sim_domain);
                 float val = isIF[i] ? mex_rel : 0;
                 atomicAdd(&delMass[nb], val);
-                //printf("b %f  ", val);
             }
         }
     }
 }
 
-__global__ void collect_fluid_mass(float *mass_gpu, unsigned int *temp_cell_type_gpu, float *delMass)
+__global__ void collect_fluid_mass(float *mass_gpu, unsigned int *temp_cell_type_gpu, float *delMass, float *rho_gpu)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
     unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
@@ -389,14 +379,36 @@ __global__ void collect_fluid_mass(float *mass_gpu, unsigned int *temp_cell_type
 
     int x_ = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
     int nb;
-    if(temp_cell_type_gpu[x_] & INTERFACE)
+    if(!(temp_cell_type_gpu[x_] & OBSTACLE))
     {
         mass_gpu[x_] += delMass[x_];
+        if(temp_cell_type_gpu[x_] & IF_TO_FLUID)
+            temp_cell_type_gpu[x_] = FLUID;
+        else if(temp_cell_type_gpu[x_] & IF_TO_EMPTY)
+            temp_cell_type_gpu[x_] = EMPTY;
+        // float rho_inv = (rho_gpu[x_]==0.0f)?0.0f:(1.0f/rho_gpu[x_]);
+        // if(mass_gpu[x_]*rho_inv>1.0f)
+        //     temp_cell_type_gpu[x_] = FLUID;
+        // else if(mass_gpu[x_]*rho_inv<0.0f)
+        //     temp_cell_type_gpu[x_] = EMPTY;
+        // else
+        //     temp_cell_type_gpu[x_] = INTERFACE;
+        // if(temp_cell_type_gpu[x_] & IF_TO_FLUID)
+        // {
+        //     if(mass_gpu[x_]>=rho_gpu[x_])
+        //         temp_cell_type_gpu[x_] = FLUID;
+        //     else
+        //         temp_cell_type_gpu[x_] &= ~IF_TO_FLUID;
+        // }
+        // else if(temp_cell_type_gpu[x_] & IF_TO_EMPTY)
+        // {
+        //     if(mass_gpu[x_]<=0.0f)
+        //         temp_cell_type_gpu[x_] = EMPTY;
+        //     else
+        //         temp_cell_type_gpu[x_] &= ~IF_TO_EMPTY;
+        // }
+        //printf(" %d ", temp_cell_type_gpu[x_]);
     }
-    if(temp_cell_type_gpu[x_] & IF_TO_FLUID)
-        temp_cell_type_gpu[x_] = FLUID;
-    else if(temp_cell_type_gpu[x_] & IF_TO_EMPTY)
-        temp_cell_type_gpu[x_] = EMPTY;
 }
 
 __global__ void update_fluid_neigh(unsigned int *temp_cell_type_gpu)
@@ -422,7 +434,6 @@ __global__ void update_fluid_neigh(unsigned int *temp_cell_type_gpu)
             if(temp_cell_type_gpu[nb] & FLUID)
             {
                 temp_cell_type_gpu[x_] = (temp_cell_type_gpu[x_] & (~NO_FLUID_NEIGH));
-
             }
             else if(temp_cell_type_gpu[nb] & EMPTY)
             {
@@ -618,13 +629,13 @@ __global__ void LB_stream(float *f1_gpu, float *f2_gpu, float *mass_gpu, float *
     int nb, coordNB, x_, coord;
     float delM = 0.0f;
     x_ = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
-    //delMass[x_] =0.0f;
+    delMass[x_] =0.0f;
     if(!(temp_cell_type_gpu[x_] & (OBSTACLE|EMPTY)))
     {
         f1_gpu[gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain)] =  f2_gpu[gpu_fieldn_index(idx, idy, idz, 0, lb_sim_domain)];
         if(temp_cell_type_gpu[x_] & FLUID)
         {
-            //mass_gpu[x_] = rho_gpu[x_];
+            mass_gpu[x_] = rho_gpu[x_];
             for(int i=1;i<19;i++)
             {
                 nb = gpu_scalar_index((idx+NX+cx[finv[i]])%NX, (idy+NY+cy[finv[i]])%NY, (idz+NZ+cz[finv[i]])%NZ,lb_sim_domain);
@@ -800,6 +811,17 @@ __host__ void LB_reset_max(cudaStream_t *streams)
     checkCudaErrors(cudaDeviceSynchronize());
 }
 
+__global__ void copy_cell_type(float *temp_cell_type_gpu, unsigned int *cell_type_gpu)
+{
+    unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
+
+    int coord = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
+    temp_cell_type_gpu[coord] = cell_type_gpu[coord];
+
+}
+
 __host__ void LB_compute_sim_param(int NX, int NY, int NZ, float viscosity, float Re)
 {
     float domain_size = 2.0;
@@ -812,7 +834,7 @@ __host__ void LB_compute_sim_param(int NX, int NY, int NZ, float viscosity, floa
     float tau_star = cs_inv_sq*(nu_star) +0.5f;
 
     checkCudaErrors(cudaMemcpyToSymbol(non_dim_tau, &tau_star, sizeof(float), 0, cudaMemcpyHostToDevice));
-    //checkCudaErrors(cudaMemcpyToSymbol(non_dim_nu, &nu_star, sizeof(float), 0, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpyToSymbol(non_dim_nu, &nu_star, sizeof(float), 0, cudaMemcpyHostToDevice));
 
     Cl = delX;
     Ct = deltaT;
@@ -862,7 +884,7 @@ __host__ float LB_allocate_memory(int NX, int NY, int NZ)
     total_size_allocated += mem_size_scalar;
     checkCudaErrors(cudaMalloc((void**)&cell_type_gpu, total_lattice_points*sizeof(unsigned int)));
     total_size_allocated += mem_size_scalar;
-    checkCudaErrors(cudaMalloc((void**)&temp_cell_type_gpu, total_lattice_points*sizeof(unsigned int)));
+    checkCudaErrors(cudaMalloc((void**)&temp_cell_type_gpu, total_lattice_points*sizeof(float)));
     total_size_allocated += mem_size_scalar;
     checkCudaErrors(cudaMalloc((void**)&delMass, total_lattice_points*sizeof(float)));
     total_size_allocated += mem_size_scalar;
@@ -948,7 +970,7 @@ __host__ float LB_init(int NX, int NY, int NZ, float Reynolds, float mu,
     construct_interface<<<ngrid, nthx>>>(cell_type_gpu, mass_gpu, rho_gpu);
     //checkCudaErrors(cudaMemcpy((void*)(temp_cell_type_gpu), (cell_type_gpu), NX*NY*NZ*sizeof(int),  cudaMemcpyDeviceToDevice ));
     checkCudaErrors(cudaDeviceSynchronize());
-    
+    copy_cell_type<<<ngrid, nthx>>>(temp_cell_type_gpu, cell_type_gpu);
     LB_reset_max(streams);
     LB_clear_Forces(streams, NX, NY, NZ);
     LB_add_gravity<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, cell_type_gpu);
@@ -1125,7 +1147,7 @@ __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct,
     check_max_params<<<1,1>>>();
     checkCudaErrors(cudaDeviceSynchronize());
 
-        collect_fluid_mass<<<ngrid, nthx>>>(mass_gpu, cell_type_gpu, delMass);
+        collect_fluid_mass<<<ngrid, nthx>>>(mass_gpu, cell_type_gpu, delMass, rho_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     printf("After distribute excess mass\n");
     LB_reset_max(streams);
@@ -1162,9 +1184,9 @@ __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct,
 
     LB_add_gravity<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, cell_type_gpu);
     LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu, mass_gpu);
-    advect_velocity(num_threads, num_mesh, streams);
-    cal_force_spread_RB(num_threads, num_mesh, Ct, streams);
-    LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu, mass_gpu);
+    // advect_velocity(num_threads, num_mesh, streams);
+    // cal_force_spread_RB(num_threads, num_mesh, Ct, streams);
+    // LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu, mass_gpu);
     LB_compute_equi_distribution<<<ngrid, nthx>>>(rho_gpu, ux_gpu, uy_gpu, uz_gpu, feq_gpu, cell_type_gpu);
     LB_compute_source_term<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, source_term_gpu, ux_gpu, uy_gpu, uz_gpu, strain_rate_gpu, cell_type_gpu);
     LB_collide<<<ngrid, nthx>>>(f1_gpu, f2_gpu, feq_gpu, source_term_gpu, strain_rate_gpu, cell_type_gpu);
@@ -1175,7 +1197,7 @@ __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct,
     update_empty_cells_nb<<<ngrid, nthx>>>(cell_type_gpu);
     checkCudaErrors(cudaMemset((void*)(delMass), 0,  NX*NY*NZ*sizeof(float)));
     distribute_excess_mass<<<ngrid, nthx>>>(mass_gpu, rho_gpu, cell_type_gpu, delMass);
-    collect_fluid_mass<<<ngrid, nthx>>>(mass_gpu, cell_type_gpu, delMass);
+    collect_fluid_mass<<<ngrid, nthx>>>(mass_gpu, cell_type_gpu, delMass, rho_gpu);
     update_fluid_neigh<<<ngrid, nthx>>>(cell_type_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     
@@ -1185,6 +1207,7 @@ __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct,
     update_max_mass<<<ngrid, nthx>>>(mass_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     check_max_params<<<1,1>>>();
+    copy_cell_type<<<ngrid, nthx>>>(temp_cell_type_gpu, cell_type_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     printf("\n");
 }

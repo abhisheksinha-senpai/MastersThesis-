@@ -20,7 +20,7 @@ int main(int argc, char* argv[])
     int NY = 64;
     int NZ = 64;
 
-    float Re_lattice = 1000.0f;
+    float Re_lattice = 10000.0f;
     float viscosity =1.48e-3f;
     float spring_constant = 0.005f;
 
@@ -30,7 +30,7 @@ int main(int argc, char* argv[])
     // glm::f32vec3 mod_origin = glm::f32vec3(NX/2, NY/2, NZ/2);
     // glm::f32vec3 mod_scale = glm::f32vec3(2, 2, 2);
     glm::f32vec3 mod_scale = glm::f32vec3(16, 16, 16);
-    glm::f32vec3 mod_origin = glm::f32vec3(20, 1, 20);
+    glm::f32vec3 mod_origin = glm::f32vec3(NX/4, 8, NZ/4);
 
     glm::f32vec3 dis_scale = glm::f32vec3(2.0f/NX, 2.0f/NY, 2.0f/NZ);
     ResourceManager r_manager;
@@ -69,6 +69,7 @@ int main(int argc, char* argv[])
     printf("Starting simulation .....\n");
     time_t cur_time1 = clock();
     time_t cur_time2 = clock();
+    time_t start_time = clock();
     int KK = 0;
     glm::f32vec3 Velocity_RB;
     float delta_angle = 0;
@@ -78,17 +79,17 @@ int main(int argc, char* argv[])
     float time_elapsed = 0.0f;
     while(!glfwWindowShouldClose(window))
     {
-        //if( KK++<100)(((float)(clock() - cur_time2))/CLOCKS_PER_SEC>1.0f)
-        if(KK++<1000)
+        if((((float)(clock() - cur_time2))/CLOCKS_PER_SEC>0.02f) && (((float)(clock() - start_time))/CLOCKS_PER_SEC>5.0f )&& KK++<1000)
+        //if(KK++<2)
         {
             float del_time = ((clock() - (float)cur_time2)/CLOCKS_PER_SEC);
             printf("Current Simulation time: %f \n", time_elapsed );
-            delta_angle = del_time*Ct;
+            delta_angle = del_time;
             current_angle += delta_angle;
             if(current_angle>=2*M_PI)
                 current_angle = -2.0f*M_PI;
             
-            Velocity_RB = glm::f32vec3(0.0f);//(Uc)*glm::f32vec3(angular_vel*cosf(angular_vel*current_angle), angular_vel*sinf(angular_vel*current_angle), angular_vel*sinf(angular_vel*current_angle));
+            Velocity_RB = glm::f32vec3(0.0f);//(Uc)*glm::f32vec3(angular_vel*cosf(angular_vel*current_angle), 0, angular_vel*sinf(angular_vel*current_angle));
             update_IB_params(128, num_mesh, Ct, Cl, Velocity_RB, streams);
             LB_simulate_RB(NX, NY, NZ, Ct, IBM_force_spread_RB, IBM_advect_bound, 128, num_mesh, streams);
             cur_time2 = clock();
