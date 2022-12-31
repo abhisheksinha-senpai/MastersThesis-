@@ -1,7 +1,7 @@
 #include "Definitions.hpp"
 #include "Particle.hpp"
 
-float fTargetValue = 0.5f;
+float fTargetValue = 0.0f;
 
 static const GLfloat a2fVertexOffset[8][3] =
 {
@@ -87,7 +87,7 @@ GLvoid marching_cube(int idx, int idy, int idz, int NX, int NY, int NZ, float *m
     iFlagIndex = 0;
     for(iVertexTest = 0; iVertexTest < 8; iVertexTest++)
     {
-            if(afCubeValue[iVertexTest] >= fTargetValue) 
+            if(afCubeValue[iVertexTest] <= fTargetValue) 
                 iFlagIndex |= 1<<iVertexTest;
     }
 

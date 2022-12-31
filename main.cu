@@ -79,7 +79,7 @@ int main(int argc, char* argv[])
     float time_elapsed = 0.0f;
     while(!glfwWindowShouldClose(window))
     {
-        if((((float)(clock() - cur_time2))/CLOCKS_PER_SEC>0.02f) && (((float)(clock() - start_time))/CLOCKS_PER_SEC>5.0f )&& KK++<1000)
+        if((((float)(clock() - cur_time2))/CLOCKS_PER_SEC>0.0f) && (((float)(clock() - start_time))/CLOCKS_PER_SEC>2.00f )&& KK++<6000)
         //if(KK++<2)
         {
             float del_time = ((clock() - (float)cur_time2)/CLOCKS_PER_SEC);

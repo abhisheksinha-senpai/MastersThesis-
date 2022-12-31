@@ -27,8 +27,9 @@ __device__ unsigned int  OBSTACLE =  (unsigned int)(1 << 3);
 __device__ unsigned int  NO_FLUID_NEIGH =  (unsigned int)(1 << 4);
 __device__ unsigned int  NO_EMPTY_NEIGH =  (unsigned int)(1 << 5);
 __device__ unsigned int  NO_IFACE_NEIGH =  (unsigned int)(1 << 6);
-__device__ unsigned int  IF_TO_FLUID =  (unsigned int)(1 << 7);
-__device__ unsigned int  IF_TO_EMPTY =  (unsigned int)(1 << 8);
+__device__ unsigned int  IF_TO_FLUID = ((unsigned int)(1 << 1)|(unsigned int)(1 << 0));
+__device__ unsigned int  IF_TO_EMPTY = ((unsigned int)(1 << 1)|(unsigned int)(1 << 2));
+__device__ unsigned int  EMPTY_TO_IF = (unsigned int)(1 << 0)|((unsigned int)(1 << 1)|(unsigned int)(1 << 2));
 
 #define checkCudaErrors(err)  __checkCudaErrors(err,#err,__FILE__,__LINE__)
 #define getLastCudaError(msg)  __getLastCudaError(msg,__FILE__,__LINE__)

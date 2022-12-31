@@ -100,7 +100,7 @@ void domain_init(int NX, int NY, int NZ,
                 loc = i+j*NX+k*NX*NY;
                 if(i == 0 || j == 0 || k == 0 || i == NX-1 || j == NY-1 || k == NZ-1)
                 {
-                    (*rho)[loc] = -9999.0f;
+                    (*rho)[loc] = 99999.0f;
                     (*ux)[loc] = 0.0f;
                     (*uy)[loc] = 0.0f;
                     (*uz)[loc] = 0.0f;
@@ -110,7 +110,7 @@ void domain_init(int NX, int NY, int NZ,
                     if(i<4*NX/8 && j<3*NY/4)
                         (*rho)[loc] = 1.0f;
                     else
-                        (*rho)[loc] = 0.00001f;
+                        (*rho)[loc] = 0.001f;
                     (*ux)[loc] = 0.0f;
                     (*uy)[loc] = 0.0f;
                     (*uz)[loc] = 0.0f;
@@ -258,10 +258,10 @@ __host__ void transfer_fluid_data(float *rho, float*ux, float *uy,float *uz,
                                   int NX, int NY, int NZ)
 {
     int sz = NX*NY*NZ*sizeof(float);
-    cudaMemcpy(rho, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(ux, (void *)ux_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(uy, (void *)uy_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(uz, (void *)uz_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(rho, (void *)temp_cell_type_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(ux, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(uy, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(uz, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
 }
 
 __host__ void draw_fluid(float *rho, float*ux, float *uy, float *uz,
@@ -289,8 +289,8 @@ __host__ void display ( float *rho, float*ux, float *uy, float *uz,
     glClearColor(0.35f, 0.15f, 0.35f, 0.05f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    //draw_model( *window, shader, model, dis_scale, 
-                // num_mesh, nodeLists, vertex_size_per_mesh, streams);
+    draw_model( *window, shader, model, dis_scale, 
+                num_mesh, nodeLists, vertex_size_per_mesh, streams);
 
     //fluidDomain.draw_geometry(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp);
     
@@ -302,18 +302,4 @@ __host__ void display ( float *rho, float*ux, float *uy, float *uz,
     processInput(*window);
     glfwPollEvents();
     glfwSwapBuffers(*window);
-}
-
-void generate_surface(int NX, int NY, int NZ)
-{
-    for(int j=0;j<NY;j++)
-    {
-        for(int i=0;i<NX;i++)
-        {
-            for(int k=0;k<NZ;k++)
-            {
-
-            }
-        }
-    }
 }
