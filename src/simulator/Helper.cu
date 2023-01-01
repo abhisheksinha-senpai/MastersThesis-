@@ -107,21 +107,15 @@ void domain_init(int NX, int NY, int NZ,
                 }
                 else
                 {
-                    if(i<4*NX/8 && j<3*NY/4)
+                    if(j<1*NY/8)
+                        (*rho)[loc] = 1.0f;
+                    else if(powf((i-NX/2), 2.0f)+powf((j-5*NY/8), 2.0f)+powf((k-NZ/2), 2.0f)<powf(NX/8, 2.0f))
                         (*rho)[loc] = 1.0f;
                     else
                         (*rho)[loc] = 0.001f;
                     (*ux)[loc] = 0.0f;
                     (*uy)[loc] = 0.0f;
                     (*uz)[loc] = 0.0f;
-
-                    // if(j<1*NY/4)
-                    //     (*rho)[loc] = 1.0f;
-                    // else
-                    //     (*rho)[loc] = 0.001f;
-                    // (*ux)[loc] = 0.0f;
-                    // (*uy)[loc] = 0.0f;
-                    // (*uz)[loc] = 0.0f;
                 }
             }
         }
@@ -258,10 +252,10 @@ __host__ void transfer_fluid_data(float *rho, float*ux, float *uy,float *uz,
                                   int NX, int NY, int NZ)
 {
     int sz = NX*NY*NZ*sizeof(float);
-    cudaMemcpy(rho, (void *)temp_cell_type_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(ux, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(uy, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(uz, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(rho, (void *)rho_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(ux, (void *)ux_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(uy, (void *)uy_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(uz, (void *)uz_gpu, sz, cudaMemcpyDeviceToHost);
 }
 
 __host__ void draw_fluid(float *rho, float*ux, float *uy, float *uz,

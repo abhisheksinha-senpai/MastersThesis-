@@ -21,7 +21,7 @@ int main(int argc, char* argv[])
     int NZ = 64;
 
     float Re_lattice = 10000.0f;
-    float viscosity =1.48e-3f;
+    float viscosity =1.48e-5f;
     float spring_constant = 0.005f;
 
     float *rho, *ux, *uy, *uz;
@@ -79,7 +79,7 @@ int main(int argc, char* argv[])
     float time_elapsed = 0.0f;
     while(!glfwWindowShouldClose(window))
     {
-        if((((float)(clock() - cur_time2))/CLOCKS_PER_SEC>0.0f) && (((float)(clock() - start_time))/CLOCKS_PER_SEC>2.00f )&& KK++<6000)
+        if((((float)(clock() - cur_time2))/CLOCKS_PER_SEC>0.0f) && (((float)(clock() - start_time))/CLOCKS_PER_SEC>2.00f )&& KK++<10000)
         //if(KK++<2)
         {
             float del_time = ((clock() - (float)cur_time2)/CLOCKS_PER_SEC);
