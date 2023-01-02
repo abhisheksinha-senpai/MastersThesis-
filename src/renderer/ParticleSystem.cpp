@@ -60,8 +60,8 @@ void ParticleSystem::update_particles(int NX, int NY, int NZ, float *mass, float
         float z = (fluid[i].Position.z);
         int loc = (int)(x+y*NX+z*NX*NY);
         float vel = glm::length(glm::f32vec3(ux[loc], uy[loc], uz[loc]));
-        // fluid[i].Color = glm::vec4(((int)mass[loc] == INTERFACE), ((int)mass[loc] == FLUID), ((int)mass[loc] == EMPTY), (((int)mass[loc] & (INTERFACE|FLUID))));
-        // fluid[i].Color = glm::vec4(10.0f*ux[loc], 10.0f*uy[loc], 10.0f*uz[loc], (((int)mass[loc] & (INTERFACE|FLUID))));
+        fluid[i].Color = glm::vec4(((int)mass[loc] == INTERFACE), ((int)mass[loc] == FLUID), ((int)mass[loc] == EMPTY), (((int)mass[loc] & (INTERFACE|FLUID))));
+        // fluid[i].Color = glm::vec4(30.0f*abs(ux[loc]), 30.0f*abs(uy[loc]), 30.0f*abs(uz[loc]), ((mass[loc])));
         fluid[i].Color = glm::vec4(mass[loc]);
         // fluid[i].Color = glm::vec4(ux[loc]/uy[loc], ux[loc], uy[loc], ((int)mass[loc] & (FLUID|INTERFACE)));
         // if((int)mass[loc] & INTERFACE && ((int)y == 3*NY/4) && ((int)x == 4*NX/8))

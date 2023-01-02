@@ -109,7 +109,8 @@ void domain_init(int NX, int NY, int NZ,
                 {
                     if(j<1*NY/8)
                         (*rho)[loc] = 1.0f;
-                    else if(powf((i-NX/2), 2.0f)+powf((j-5*NY/8), 2.0f)+powf((k-NZ/2), 2.0f)<powf(NX/8, 2.0f))
+                        // else if((i>3*NX/8 && i<5*NX/8) && (j>3*NX/8 && j<5*NX/8) && (k>3*NX/8 && k<5*NX/8))
+                    else if(powf((i-NX/2), 2.0f)+powf((j-5*NY/8), 2.0f)+powf((k-NZ/2), 2.0f)<powf(NX/16, 2.0f))
                         (*rho)[loc] = 1.0f;
                     else
                         (*rho)[loc] = 0.001f;
@@ -252,7 +253,7 @@ __host__ void transfer_fluid_data(float *rho, float*ux, float *uy,float *uz,
                                   int NX, int NY, int NZ)
 {
     int sz = NX*NY*NZ*sizeof(float);
-    cudaMemcpy(rho, (void *)rho_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(rho, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
     cudaMemcpy(ux, (void *)ux_gpu, sz, cudaMemcpyDeviceToHost);
     cudaMemcpy(uy, (void *)uy_gpu, sz, cudaMemcpyDeviceToHost);
     cudaMemcpy(uz, (void *)uz_gpu, sz, cudaMemcpyDeviceToHost);
