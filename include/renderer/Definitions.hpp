@@ -35,16 +35,25 @@ struct Vertex
     glm::f32vec2 TexCoords;
     glm::f32vec3 Base_Pos;
     glm::f32vec3 Base_Vel;
+    glm::f32vec3 Prev_Position;
     glm::f32vec3 Velocity;
     float Area = 0.0f;
+    float invMass = 0.0f;
 };
 
-// struct Edge
-// {
-//     glm::f32vec3 v1;
-//     glm::f32vec3 v2;
-//     float k;
-//     float L0;
-// };
+struct Edge
+{
+    int vertID[2];
+    float k;
+    float L0;
+};
+
+struct Tetrahedral
+{
+    glm::i32vec3 face[4] = {glm::i32vec3{1,3,2}, glm::i32vec3{0,2,3}, glm::i32vec3{0,3,1}, glm::i32vec3{0,1,2}};
+    int vertID[4];
+    float V0;
+    float k;
+};
 
 #endif

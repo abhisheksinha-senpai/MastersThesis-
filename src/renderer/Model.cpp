@@ -32,7 +32,7 @@ void Model::loadModel(std::string path, glm::f32vec3 scale, glm::f32vec3 origin)
 {
     
     Assimp::Importer importer;
-    const aiScene *scene = importer.ReadFile(path, aiProcess_Triangulate|aiProcess_FlipUVs);
+    const aiScene *scene = importer.ReadFile(path, aiProcess_JoinIdenticalVertices );
 
     if(!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
     {
@@ -99,11 +99,14 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene)
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
     std::vector<Texture> textures;
-    // std::unordered_map<std::pair<float, float>, bool, pair_hash> edgeList;
-    // std::vector<Edge> edges;
+    std::vector<Tetrahedral> tets;
+    std::unordered_map<std::pair<float, float>, bool, pair_hash> edgeList;
+    std::vector<Edge> edges;
+    printf("*(&^*&^ Number vertices: %d\n", mesh->mNumVertices);
     for(unsigned int i = 0; i < mesh->mNumVertices; i++)
     {
         Vertex vertex;
+        Tetrahedral tet;
         // process vertex positions, normals and texture coordinates
         glm::vec3 vector;
         vector.x = mesh->mVertices[i].x;
@@ -147,9 +150,24 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene)
     // process indices
     for(unsigned int i = 0; i < mesh->mNumFaces; i++)
     {
+        Tetrahedral tet;
         aiFace face = mesh->mFaces[i];
         for(unsigned int j = 0; j < face.mNumIndices; j++)
+        {
             indices.push_back(face.mIndices[j]);
+            tet.vertID[j] = face.mIndices[j];
+            int one = std::min(face.mIndices[(j+1)%face.mNumIndices],face.mIndices[j]);
+            int two = std::max(face.mIndices[j],face.mIndices[(j+1)%face.mNumIndices]);
+            edgeList[std::make_pair(one, two)] = 1;
+        }
+        tets.push_back(tet);
+    }
+    Edge e;
+    for(auto kv : edgeList)
+    {
+        e.vertID[0] = kv.first.first;
+        e.vertID[1] = kv.first.second;
+        edges.push_back(e);
     }
 
     // process material
@@ -161,7 +179,7 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene)
     std::vector<Texture> specularMaps = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular");
     textures.insert(textures.end(), specularMaps.begin(),specularMaps.end());
 
-    return Mesh(vertices, indices, textures);//, edges);
+    return Mesh(vertices, indices, textures, tets, edges);
 }
 
 std::vector<Texture> Model::loadMaterialTextures(aiMaterial *mat, aiTextureType type, std::string typeName)

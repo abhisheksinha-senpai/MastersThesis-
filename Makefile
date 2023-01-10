@@ -35,10 +35,10 @@ SIM = $(IDIR)/simulator
 CUDACC = nvcc
 CUDA_FLAGS = -I$(SIM) -I$(EXT) -I$(RENDER) -O3 -w -m64 --gpu-architecture=sm_75 -x cu -std=c++11 -lcudart --default-stream per-thread
 
-_CUDADEPS = ImmersedBoundary.cuh LatticeBoltzmann.cuh utilities.cuh Helper.cuh
+_CUDADEPS = ImmersedBoundary.cuh LatticeBoltzmann.cuh utilities.cuh Helper.cuh PBD.cuh
 CUDADEPS = $(patsubst %,$(SIM)/%,$(_CUDADEPS))
 
-_CUDAOBJECTS = LatticeBoltzmann.o ImmersedBoundary.o Helper.o utilities.o 
+_CUDAOBJECTS = LatticeBoltzmann.o ImmersedBoundary.o Helper.o utilities.o PBD.o
 CUDAOBJECTS = $(patsubst %,$(ODIR)/%,$(_CUDAOBJECTS))
 
 $(ODIR)/%.o:  $(SDIR)/simulator/%.cu $(CUDADEPS)

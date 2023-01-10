@@ -1,11 +1,12 @@
 #include "Mesh.hpp"
 
-Mesh::Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture> textures)//, std::vector<Edge> edges)
+Mesh::Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture> textures, std::vector<Tetrahedral> tets, std::vector<Edge> edges)
 {
     this->vertices = vertices;
     this->indices = indices;
     this->textures = textures;
-    // this->edges = edges;
+    this->tets = tets;
+    this->edges = edges;
     setupMesh();
 }
 

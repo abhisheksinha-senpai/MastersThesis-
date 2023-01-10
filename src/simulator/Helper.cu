@@ -71,7 +71,7 @@ glm::f32vec3 scale, glm::f32vec3 origin)
     // std::string model_name = "resources/backpack/backpack.obj";
     // std::string model_name = "resources/Cup/cup.obj";
     // std::string model_name = "resources/Cube/slime.obj";
-    std::string model_name = "resources/Sphere/Ball.obj";
+    std::string model_name = "resources/BlenderModels/Testing_without_Normals.obj";
     ourModel = Model((char *)model_name.c_str(), scale, origin);
     printf("Model initialized.....\n");
 }
@@ -234,8 +234,8 @@ __host__ void draw_model( GLFWwindow* window, Shader& shader, Model& objmodel,
                           int *vertex_size_per_mesh,
                           cudaStream_t *streams)
 {
-    transfer_mesh_data(num_mesh, nodeLists, vertex_size_per_mesh, streams, objmodel);
-    checkCudaErrors(cudaDeviceSynchronize());
+    // transfer_mesh_data(num_mesh, nodeLists, vertex_size_per_mesh, streams, objmodel);
+    // checkCudaErrors(cudaDeviceSynchronize());
     shader.use();
     // view/projection transformations
     view = glm::lookAt(cameraPos, cameraPos+cameraFront, cameraUp);
@@ -287,12 +287,12 @@ __host__ void display ( float *rho, float*ux, float *uy, float *uz,
     draw_model( *window, shader, model, dis_scale, 
                 num_mesh, nodeLists, vertex_size_per_mesh, streams);
 
-    //fluidDomain.draw_geometry(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp);
+    fluidDomain.draw_geometry(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp);
     
-    draw_fluid(rho, ux, uy,uz,
-               mass_gpu, ux_gpu, uy_gpu, uz_gpu,
-               NX, NY, NZ, 
-               fluid, mod_scale, dis_scale);
+    // draw_fluid(rho, ux, uy,uz,
+    //            mass_gpu, ux_gpu, uy_gpu, uz_gpu,
+    //            NX, NY, NZ, 
+    //            fluid, mod_scale, dis_scale);
 
     processInput(*window);
     glfwPollEvents();

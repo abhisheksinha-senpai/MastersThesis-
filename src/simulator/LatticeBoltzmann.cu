@@ -2,7 +2,7 @@
 
 __device__ const float RHO_ATM = 0.001f;
 __device__ const float RHO_FLUID = 1.0f;
-__device__ const float GRAV_CONST = 0.00001f;
+__device__ const float GRAV_CONST = 0.001f;
 __device__ const float SMAGRINSKY_CONST= 0.01;
 __device__ const float FILL_OFFSET = 0.01f;
 __device__ const float LONELY_THRESH = 0.1f;

@@ -11,6 +11,7 @@
 #include "utilities.cuh"
 #include "ImmersedBoundary.cuh"
 #include "LatticeBoltzmann.cuh"
+#include "PBD.cuh"
 
 __host__ void display_init(GLFWwindow** window);
 

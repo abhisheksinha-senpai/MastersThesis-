@@ -57,10 +57,12 @@ int main(int argc, char* argv[])
         cudaStreamCreate(&streams[i]);
     }
 
+    Softbody monkey = Softbody(ourModel.meshes[0].vertices.data(), ourModel.meshes[0].vertices.size(), ourModel.meshes[0].tets.data(), ourModel.meshes[0].tets.size(), ourModel.meshes[0].edges.data(), ourModel.meshes[0].edges.size(), 0.1f, 0.10f);
 
     float total_size_allocated = 0;
     total_size_allocated += LB_init(NX, NY, NZ, Re_lattice, viscosity, &rho, &ux, &uy, &uz, streams);
     total_size_allocated+= IBM_init(NX, NY, NZ, num_mesh, nodeData, streams, spring_constant);
+    
     float byte_per_GB = powf(1024.0f, 3);
     float Uc = (Re_lattice*viscosity/2.0f);
     printf("Characteristic velocity %f\n", Uc);
@@ -79,19 +81,23 @@ int main(int argc, char* argv[])
     float time_elapsed = 0.0f;
     while(!glfwWindowShouldClose(window))
     {
-        if((((float)(clock() - cur_time2))/CLOCKS_PER_SEC>0.0f) && (((float)(clock() - start_time))/CLOCKS_PER_SEC>2.00f )&& KK++<6000)
-        //if(KK++<2)
+        if((((float)(clock() - cur_time2))/CLOCKS_PER_SEC>0.0f) && (((float)(clock() - start_time))/CLOCKS_PER_SEC>2.00f )&& KK++<10000)
+        // //if(KK++<2)
         {
-            float del_time = ((clock() - (float)cur_time2)/CLOCKS_PER_SEC);
-            printf("Current Simulation time: %f \n", time_elapsed );
+            float del_time = 1.0f/60.0f;//((clock() - (float)cur_time2)/CLOCKS_PER_SEC);
             delta_angle = del_time;
             current_angle += delta_angle;
             if(current_angle>=2*M_PI)
                 current_angle = -2.0f*M_PI;
             
             Velocity_RB = glm::f32vec3(0.0f);//(Uc)*glm::f32vec3(angular_vel*cosf(angular_vel*current_angle), 0, angular_vel*sinf(angular_vel*current_angle));
-            update_IB_params(128, num_mesh, Ct, Cl, Velocity_RB, streams);
-            LB_simulate_RB(NX, NY, NZ, Ct, IBM_force_spread_RB, IBM_advect_bound, 128, num_mesh, streams);
+            monkey.preSolve(del_time/10.0f, glm::f32vec3(0.0f, -9.8f, 0.0f), glm::f32vec3(NX, NY, NZ));
+            monkey.SolveEdges(del_time/10.0f);
+            monkey.solveVolumes(del_time/10.0f);
+            monkey.postSolve(del_time/10.0f);
+            printf("Current Simulation time: %f, Per frame time %f\n", time_elapsed, del_time );
+        //     update_IB_params(128, num_mesh, Ct, Cl, Velocity_RB, streams);
+        //     LB_simulate_RB(NX, NY, NZ, Ct, IBM_force_spread_RB, IBM_advect_bound, 128, num_mesh, streams);
             cur_time2 = clock();
             time_elapsed += Ct;
             
