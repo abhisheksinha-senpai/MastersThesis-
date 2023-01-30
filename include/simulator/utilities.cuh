@@ -8,7 +8,7 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-const dim3 nThreads(64, 1, 1);
+const dim3 nThreads(64, 16, 1);
 
 extern float *Fx_gpu, *Fy_gpu, *Fz_gpu;
 extern float *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu;
@@ -19,6 +19,7 @@ extern float *empty_filled_cell;
 extern unsigned int *cell_type_gpu;
 extern float *temp_cell_type_gpu;
 extern float *count_loc;
+extern float *Fbx_gpu, *Fby_gpu, *Fbz_gpu;
 
 __device__ unsigned int FLUID = (unsigned int)(1 << 0);
 __device__ unsigned int  INTERFACE  = (unsigned int)(1 << 1);

@@ -2,15 +2,13 @@
 
 __device__ const float RHO_ATM = 0.001f;
 __device__ const float RHO_FLUID = 1.0f;
-__device__ const float GRAV_CONST = 0.001f;
-__device__ const float SMAGRINSKY_CONST= 0.01;
+__device__ const float SMAGRINSKY_CONST= 0.94f;//0.003f;
 __device__ const float FILL_OFFSET = 0.01f;
 __device__ const float LONELY_THRESH = 0.1f;
-
+__device__ float GRAV_CONST1 = 0.001f;
 __device__ float cs_inv_sq = 3.0f;
 __device__ float non_dim_tau;// = 1.5f;
 __device__ float non_dim_nu;
-
 
 __device__ float w[19] = {1.0f/3.0f, 1.0f/18.0f,  1.0f/18.0f, 1.0f/18.0f, 1.0f/18.0f, 1.0f/18.0f, 1.0f/18.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f, 1.0f/36.0f};
 
@@ -33,8 +31,10 @@ __device__ float max_Fz = -9999.0f;
 __device__ float total_mass = 0.0f;
 
 
-float Ct;
-float Cl;
+float Ct=1.0f;
+float Cl=1.0f;
+float GRAV_CONST = 0.001f;
+
 
 float *count_loc;
 float *Fx_gpu, *Fy_gpu, *Fz_gpu;
@@ -42,7 +42,6 @@ float *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu;
 float *f1_gpu, *f2_gpu, *feq_gpu, *source_term_gpu;
 float *mass_gpu, *strain_rate_gpu, *delMass;
 float *empty_filled_cell;
-//cell Type: 0-fluid, 1-interface, 2-gas, 3-obstacle
 unsigned int *cell_type_gpu;
 float *temp_cell_type_gpu;
 
@@ -77,7 +76,7 @@ __device__ float calculate_gas_DF(float rho, float ux, float uy, float uz, int i
 {
     float u_dot_c, u_dot_u = ux * ux + uy * uy + uz * uz;
     u_dot_c= cx[i] * ux + cy[i] * uy + cz[i] * uz;
-    float feq = fmaxf(w[i]*rho*(1+cs_inv_sq*(u_dot_c +0.5*cs_inv_sq*powf(u_dot_c, 2.0f) - 0.5*u_dot_u)), 0.0f);
+    float feq = w[i]*rho*(1+cs_inv_sq*(u_dot_c +0.5*cs_inv_sq*powf(u_dot_c, 2.0f) - 0.5*u_dot_u));//fmaxf(w[i]*rho*(1+cs_inv_sq*(u_dot_c +0.5*cs_inv_sq*powf(u_dot_c, 2.0f) - 0.5*u_dot_u)), 0.0f);//
     return feq;
 }
 
@@ -101,6 +100,27 @@ __device__ int calculate_fill_fraction(float rho, float mass, int type)
     }
     else
         return 0.0f;
+}
+
+__device__ glm::f32vec3 calculate_normal(int idx, int idy, int idz, float *rho_gpu, float *mass_gpu, unsigned int  *temp_cell_type_gpu)
+{
+    int NX = lb_sim_domain[0];
+    int NY = lb_sim_domain[1];
+    int NZ = lb_sim_domain[2];
+
+    glm::f32vec3 norm = glm::f32vec3(0.0f);
+    int xm = gpu_scalar_index((idx+NX-1)%NX, (idy+NY)%NY, (idz+NZ)%NZ, lb_sim_domain);
+    int xp = gpu_scalar_index((idx+NX+1)%NX, (idy+NY)%NY, (idz+NZ)%NZ, lb_sim_domain);
+    int ym = gpu_scalar_index((idx+NX)%NX, (idy+NY-1)%NY, (idz+NZ)%NZ, lb_sim_domain);
+    int yp = gpu_scalar_index((idx+NX)%NX, (idy+NY+1)%NY, (idz+NZ)%NZ, lb_sim_domain);
+    int zm = gpu_scalar_index((idx+NX)%NX, (idy+NY)%NY, (idz+NZ-1)%NZ, lb_sim_domain);
+    int zp = gpu_scalar_index((idx+NX)%NX, (idy+NY)%NY, (idz+NZ+1)%NZ, lb_sim_domain);
+    
+    norm.x= 0.5f*(calculate_fill_fraction(mass_gpu[xm], rho_gpu[xm], temp_cell_type_gpu[xm]) - calculate_fill_fraction(mass_gpu[xp], rho_gpu[xp], temp_cell_type_gpu[xp]));
+    norm.y = 0.5f*(calculate_fill_fraction(mass_gpu[ym], rho_gpu[ym], temp_cell_type_gpu[ym]) - calculate_fill_fraction(mass_gpu[yp], rho_gpu[yp], temp_cell_type_gpu[yp]));
+    norm.z = 0.5f*(calculate_fill_fraction(mass_gpu[zm], rho_gpu[zm], temp_cell_type_gpu[zm]) - calculate_fill_fraction(mass_gpu[zp], rho_gpu[zp], temp_cell_type_gpu[zp]));
+
+    return norm;
 }
 
 __global__ void cell_initialize(float *mass_gpu, unsigned int *cell_type_gpu, float *rho_gpu)
@@ -154,9 +174,10 @@ __global__ void construct_interface(unsigned int *cell_type_gpu, float *mass_gpu
             nb = gpu_scalar_index((idx+NX+cx[i])%NX, (idy+NY+cy[i])%NY, (idz+NZ+cz[i])%NZ, lb_sim_domain);
             if(!(cell_type_gpu[nb] == OBSTACLE) && (cell_type_gpu[nb] == EMPTY))
             {
+                // printf(" Kevin ");
                 cell_type_gpu[nb] = INTERFACE ;
-                rho_gpu[nb] = 1.0f;
-                mass_gpu[nb] = 0.0f;
+                rho_gpu[nb] = RHO_FLUID;
+                mass_gpu[nb] = 0.5f;
             }
         }
     }
@@ -184,6 +205,7 @@ __global__ void IF_update_cell_type(float *rho_gpu, float *mass_gpu, unsigned in
     int nb;
     if(temp_cell_type_gpu[x_] == OBSTACLE)
         return;
+    
     if(temp_cell_type_gpu[x_] == INTERFACE)
     {
         bool NO_FLUID_NB = true;
@@ -191,13 +213,12 @@ __global__ void IF_update_cell_type(float *rho_gpu, float *mass_gpu, unsigned in
         for(int i=1;i<19;i++)
         {
             nb = gpu_scalar_index(idx+cx[i], idy+cy[i], idz+cz[i], lb_sim_domain);
-            NO_FLUID_NB = NO_FLUID_NB && temp_cell_type_gpu[nb]!=FLUID;
-            NO_EMPTY_NB = NO_EMPTY_NB && temp_cell_type_gpu[nb]!=EMPTY;
+            NO_FLUID_NB = (NO_FLUID_NB && temp_cell_type_gpu[nb]!=FLUID);
+            NO_EMPTY_NB = (NO_EMPTY_NB && temp_cell_type_gpu[nb]!=EMPTY);
         }
-
-        if(mass_gpu[x_]>(1.0f)*abs(rho_gpu[x_]) || NO_EMPTY_NB)
+        if(mass_gpu[x_]>=(1.0f + FILL_OFFSET)*rho_gpu[x_]|| (NO_EMPTY_NB))// && mass_gpu[x_]>=(1-FILL_OFFSET)*rho_gpu[x_]))
             temp_cell_type_gpu[x_] = IF_TO_FLUID;
-        else if(mass_gpu[x_]<(0.0f)*abs(rho_gpu[x_]) || NO_FLUID_NB)
+        else if(mass_gpu[x_]<=(0.0f - FILL_OFFSET)*rho_gpu[x_] || (NO_FLUID_NB))// && mass_gpu[x_]<=FILL_OFFSET*rho_gpu[x_]))
             temp_cell_type_gpu[x_] = IF_TO_EMPTY;
     }
 }
@@ -216,7 +237,7 @@ __global__ void IF_filled_nb_flag_update(unsigned int *temp_cell_type_gpu)
     int nb, nbb;
     if(temp_cell_type_gpu[x_] == OBSTACLE)
         return;
-    if(temp_cell_type_gpu[x_] == IF_TO_FLUID)
+    if(temp_cell_type_gpu[x_] == IF_TO_FLUID)// || temp_cell_type_gpu[x_] == FLUID)
     {
         for(int i=1;i<19;i++)
         {
@@ -329,34 +350,57 @@ __global__ void IF_distribute_excess_mass(float *mass_gpu, float *rho_gpu, unsig
     if(temp_cell_type_gpu[x_] == OBSTACLE)
         return;
     if(temp_cell_type_gpu[x_] == FLUID)
-        mass_ex = mass_gpu[x_]- rho_gpu[x_];
+    {
+        mass_ex = mass_gpu[x_]- RHO_FLUID;
+        mass_gpu[x_] = RHO_FLUID;
+    }
     else if(temp_cell_type_gpu[x_] == EMPTY)
+    {
         mass_ex = mass_gpu[x_];
+        mass_gpu[x_] = 0.0f;
+    }
     else if(temp_cell_type_gpu[x_] == INTERFACE)
     {
-        if(mass_gpu[x_]>rho_gpu[x_])
+        if(mass_gpu[x_]>=rho_gpu[x_]*(1+ FILL_OFFSET))
+        {
             mass_ex = mass_gpu[x_]-rho_gpu[x_];
-        else if(mass_gpu[x_]<0.0f)
+            mass_gpu[x_] = rho_gpu[x_];
+        }
+        else if(mass_gpu[x_]<=rho_gpu[x_]*(0.0f-FILL_OFFSET))
+        {
             mass_ex = mass_gpu[x_];
+            mass_gpu[x_] = 0.0f;
+        }
     }
     else if(temp_cell_type_gpu[x_] == IF_TO_FLUID)
-        mass_ex = mass_gpu[x_]- rho_gpu[x_];
+    {
+        mass_ex = mass_gpu[x_]- RHO_FLUID;
+        mass_gpu[x_] = RHO_FLUID;
+    }
     else if(temp_cell_type_gpu[x_] == IF_TO_EMPTY)
+    {
         mass_ex = mass_gpu[x_];
+        mass_gpu[x_] = 0.0f;
+    }
     else if(temp_cell_type_gpu[x_] == EMPTY_TO_IF)
     {
-        if(mass_gpu[x_]>rho_gpu[x_])
+        if(mass_gpu[x_]>=rho_gpu[x_]*(1 - FILL_OFFSET))
+        {
             mass_ex = mass_gpu[x_]-rho_gpu[x_];
-        else if(mass_gpu[x_]<0.0f)
+            mass_gpu[x_] = rho_gpu[x_];
+        }
+        else if(mass_gpu[x_]<=rho_gpu[x_]*(0.0f + FILL_OFFSET))
+        {
             mass_ex = mass_gpu[x_];
+            mass_gpu[x_] = 0.0f;
+        }
     }
 
-    mass_gpu[x_] -= mass_ex;
     int count = 0;
     for(int i=1;i<19;i++)
     {
         nb = gpu_scalar_index((idx+NX+cx[i])%NX, (idy+NY+cy[i])%NY, (idz+NZ+cz[i])%NZ, lb_sim_domain);
-        count += ((temp_cell_type_gpu[nb] == INTERFACE) || (temp_cell_type_gpu[nb] == FLUID) || (temp_cell_type_gpu[nb] == (EMPTY_TO_IF)) || (temp_cell_type_gpu[nb] == IF_TO_FLUID));
+        count += ((temp_cell_type_gpu[nb] == INTERFACE) || (temp_cell_type_gpu[nb] == (EMPTY_TO_IF)) || (temp_cell_type_gpu[nb] == (FLUID)) || (temp_cell_type_gpu[nb] == (IF_TO_FLUID)));
     }
    delMass[x_] = count>0?(1.0f/(float)count)*mass_ex:0.0f;
    mass_gpu[x_] += count>0?0.0f:mass_ex;
@@ -374,22 +418,36 @@ __global__ void IF_collect_fluid_mass(float *mass_gpu, unsigned int *temp_cell_t
 
     int x_ = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
     int nb;
-
+    
     if(temp_cell_type_gpu[x_] == OBSTACLE)
         return;
-    if(temp_cell_type_gpu[x_] == (EMPTY_TO_IF))
+
+
+    if(temp_cell_type_gpu[x_] == EMPTY_TO_IF)
         temp_cell_type_gpu[x_] = INTERFACE;
     if(temp_cell_type_gpu[x_] == IF_TO_FLUID)
-        temp_cell_type_gpu[x_] = FLUID;
+    {
+        // if(mass_gpu[x_]>=rho_gpu[x_]*(1.0f+FILL_OFFSET))
+            temp_cell_type_gpu[x_] = FLUID;
+        // else
+        //     temp_cell_type_gpu[x_] = INTERFACE;
+    }
+            // temp_cell_type_gpu[x_] = FLUID;
     if(temp_cell_type_gpu[x_] == IF_TO_EMPTY)
-        temp_cell_type_gpu[x_] = EMPTY;
+    {
+        // if(mass_gpu[x_]<=rho_gpu[x_]*(0.0f-FILL_OFFSET))
+            temp_cell_type_gpu[x_] = EMPTY;
+        // else
+        //     temp_cell_type_gpu[x_] = INTERFACE;
+    }
 
-    if(temp_cell_type_gpu[x_] == INTERFACE || temp_cell_type_gpu[x_] == FLUID)
+    if((temp_cell_type_gpu[x_] == INTERFACE) || (temp_cell_type_gpu[x_] == (FLUID)))
     {
         for(int i=1;i<19;i++)
         {
             nb = gpu_scalar_index((idx+NX+cx[i])%NX, (idy+NY+cy[i])%NY, (idz+NZ+cz[i])%NZ, lb_sim_domain);
-            mass_gpu[x_] += delMass[nb];
+            if(temp_cell_type_gpu[nb] != OBSTACLE)
+                mass_gpu[x_] += delMass[nb];
         }
     }
 }
@@ -416,10 +474,10 @@ __global__ void IF_stream_mass_transfer(float *f1_gpu, float *f2_gpu, float *rho
         {
             coord = gpu_fieldn_index(idx, idy, idz, i, lb_sim_domain);
             int coord_inv = gpu_fieldn_index(idx, idy, idz, finv[i], lb_sim_domain);
-            delMass[x_] += (fmaxf(f1_gpu[coord_inv], 0.0f) - fmaxf(f2_gpu[coord], 0.0f));
+            delMass[x_] += f1_gpu[coord_inv] - f2_gpu[coord];//(fmaxf(f1_gpu[coord_inv], 0.0f) - fmaxf(f2_gpu[coord], 0.0f));//
         }
     }
-    else if(temp_cell_type_gpu[x_] == INTERFACE)
+    if(temp_cell_type_gpu[x_] == INTERFACE)
     {
         for(int i=1;i<19;i++)
         {
@@ -428,9 +486,9 @@ __global__ void IF_stream_mass_transfer(float *f1_gpu, float *f2_gpu, float *rho
             int coord_inv = gpu_fieldn_index(idx, idy, idz, finv[i], lb_sim_domain);
             float avg_frac = 0.5f*(calculate_fill_fraction(rho_gpu[nb], mass_gpu[nb], temp_cell_type_gpu[nb]) + calculate_fill_fraction(rho_gpu[x_], mass_gpu[x_], temp_cell_type_gpu[x_]));
             if(temp_cell_type_gpu[nb] == (FLUID))
-                delMass[x_] += (fmaxf(f1_gpu[coord_inv], 0.0f) - fmaxf(f2_gpu[coord], 0.0f));
+                delMass[x_] += f1_gpu[coord_inv] - f2_gpu[coord];//(fmaxf(f1_gpu[coord_inv], 0.0f) - fmaxf(f2_gpu[coord], 0.0f));//
             else if(temp_cell_type_gpu[nb] == INTERFACE)
-                delMass[x_] += (fmaxf(f1_gpu[coord_inv], 0.0f) - fmaxf(f2_gpu[coord], 0.0f))*avg_frac;
+                delMass[x_] += (f1_gpu[coord_inv] - f2_gpu[coord])*avg_frac;//(fmaxf(f1_gpu[coord_inv], 0.0f) - fmaxf(f2_gpu[coord], 0.0f))*avg_frac;//
             else if(temp_cell_type_gpu[nb] == EMPTY)
                 delMass[x_] += 0.0f;
         }
@@ -471,10 +529,12 @@ __global__ void LB_compute_local_params(float *f1_gpu, float *Fx_gpu, float *Fy_
         float SPEED_LIMIT = sqrt(1.0f/3.0f);
         float len = glm::length(glm::f32vec3(newU, newV, newW));
         float factor = 1.0f;
+        if(len>SPEED_LIMIT)
+            factor = SPEED_LIMIT/len;
 
-        ux_gpu[x_] = clamp(newU, SPEED_LIMIT, -SPEED_LIMIT);
-        uy_gpu[x_] = clamp(newV, SPEED_LIMIT, -SPEED_LIMIT);
-        uz_gpu[x_] = clamp(newW, SPEED_LIMIT, -SPEED_LIMIT);
+        ux_gpu[x_] = newU*factor;
+        uy_gpu[x_] = newV*factor;
+        uz_gpu[x_] = newW*factor;
     }
 }
 
@@ -498,7 +558,7 @@ __global__ void LB_compute_equi_distribution(float *rho_gpu, float *ux_gpu, floa
         for(int i=0;i<19;i++)
         {
             u_dot_c= cx[i] * lat_ux + cy[i] * lat_uy + cz[i] * lat_uz;
-            feq_gpu[gpu_fieldn_index(idx, idy, idz, i, lb_sim_domain)] = w[i]*lat_rho*(1.0f+cs_inv_sq*(u_dot_c +0.5f*cs_inv_sq*powf(u_dot_c, 2.0f) - 0.5f*u_dot_u));
+            feq_gpu[gpu_fieldn_index(idx, idy, idz, i, lb_sim_domain)] = w[i]*lat_rho*(1.0f+cs_inv_sq*(u_dot_c +0.5f*cs_inv_sq*powf(u_dot_c, 2.0f) - 0.5f*u_dot_u));//fmaxf(w[i]*lat_rho*(1.0f+cs_inv_sq*(u_dot_c +0.5f*cs_inv_sq*powf(u_dot_c, 2.0f) - 0.5f*u_dot_u)), 0.0f);//
         }
     }
 }
@@ -590,9 +650,9 @@ __global__ void LB_collide(float *f1_gpu, float* f2_gpu, float *feq_gpu, float *
         for(int i =0;i<19;i++)
         {
             coord = gpu_fieldn_index(idx, idy, idz, i, lb_sim_domain);
-            omega = -1.0f*tau_inv*(fmaxf(f1_gpu[coord], 0.0f) - fmaxf(feq_gpu[coord], 0.0f));
+            omega = -1.0f*tau_inv*(f1_gpu[coord] - feq_gpu[coord]);//-1.0f*tau_inv*(fmaxf(f1_gpu[coord], 0.0f) - fmaxf(feq_gpu[coord], 0.0f));//
             source = source_term_gpu[coord];
-            f2_gpu[coord] = fmaxf(fmaxf(f1_gpu[coord], 0.0f) + (omega + source), 0.0f);
+            f2_gpu[coord] = f1_gpu[coord] + (omega + source);//fmaxf(fmaxf(f1_gpu[coord], 0.0f) + (omega + source), 0.0f);//
         }
     }
 }
@@ -623,9 +683,9 @@ __global__ void LB_stream(float *f1_gpu, float *f2_gpu, float *rho_gpu, float *u
                 coord = gpu_fieldn_index(idx, idy, idz, i, lb_sim_domain);
                 int coord_inv = gpu_fieldn_index(idx, idy, idz, finv[i], lb_sim_domain);
                 if(temp_cell_type_gpu[nb] == FLUID || temp_cell_type_gpu[nb] == INTERFACE)
-                    f1_gpu[coord] = fmaxf(f2_gpu[coordNB], 0.0f);
+                    f1_gpu[coord] = f2_gpu[coordNB];//fmaxf(f2_gpu[coordNB], 0.0f);//
                 else if(temp_cell_type_gpu[nb] == OBSTACLE)
-                    f1_gpu[coord] = fmaxf(f2_gpu[coord_inv], 0.0f);
+                    f1_gpu[coord] = f2_gpu[coord_inv];//fmaxf(f2_gpu[coord_inv], 0.0f);//
             }
         }
         else if(temp_cell_type_gpu[x_] == INTERFACE)
@@ -640,15 +700,27 @@ __global__ void LB_stream(float *f1_gpu, float *f2_gpu, float *rho_gpu, float *u
                 coord = gpu_fieldn_index(idx, idy, idz, i, lb_sim_domain);
                 int coord_inv = gpu_fieldn_index(idx, idy, idz, finv[i], lb_sim_domain);
                 if(temp_cell_type_gpu[nb] == FLUID || temp_cell_type_gpu[nb] == INTERFACE)
-                    f1_gpu[coord] = fmaxf(f2_gpu[coordNB], 0.0f);
+                    f1_gpu[coord] = f2_gpu[coordNB];//fmaxf(f2_gpu[coordNB], 0.0f);//
                 else if(temp_cell_type_gpu[nb] == EMPTY)
                 {
                     float avg_pop = 0.5f*(calculate_gas_DF(RHO_FLUID, lat_ux, lat_uy, lat_uz, i) + calculate_gas_DF(RHO_FLUID, lat_ux, lat_uy, lat_uz, finv[i]));
-                    f1_gpu[coord] = fmaxf(2.0f*avg_pop - fmaxf(f2_gpu[coord_inv], 0.0f), 0.0f);
+                    f1_gpu[coord] = 2.0f*avg_pop - f2_gpu[coord_inv];//fmaxf(2.0f*avg_pop - fmaxf(f2_gpu[coord_inv], 0.0f), 0.0f);//
                 }
                 else if(temp_cell_type_gpu[nb] == OBSTACLE)
-                    f1_gpu[coord] = fmaxf(f2_gpu[coord_inv], 0.0f);
+                    f1_gpu[coord] = f2_gpu[coord_inv];//fmaxf(f2_gpu[coord_inv], 0.0f);//
             }
+
+            // glm::f32vec3 norm = calculate_normal(idx, idy, idz, rho_gpu, mass_gpu, temp_cell_type_gpu);
+            // for(int i=1;i<19;i++)
+            // {
+            //     float n_ci = norm.x*cx[finv[i]]+norm.y*cy[finv[i]]+norm.z*cz[finv[i]];
+            //     int coord_inv = gpu_fieldn_index(idx, idy, idz, finv[i], lb_sim_domain);
+            //     if(n_ci<0.0f)
+            //     {
+            //         float avg_pop = 0.5f*(calculate_gas_DF(RHO_FLUID, lat_ux, lat_uy, lat_uz, i) + calculate_gas_DF(RHO_FLUID, lat_ux, lat_uy, lat_uz, finv[i]));
+            //         f1_gpu[coord] = 2.0f*avg_pop - f2_gpu[coord_inv];//fmaxf(2.0f*avg_pop - fmaxf(f2_gpu[coord_inv], 0.0f), 0.0f);//
+            //     }
+            // }
         }
     }
 }
@@ -685,7 +757,7 @@ __global__ void update_total_mass(float *mass_gpu, unsigned int *temp_cell_type_
     unsigned int idz = threadIdx.z +  blockIdx.z * blockDim.z;
 
     int coord = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
-    if(!(temp_cell_type_gpu[coord] == (OBSTACLE)))
+    if(!(temp_cell_type_gpu[coord] == (OBSTACLE)) && !(temp_cell_type_gpu[coord] == (EMPTY)))
         atomicAdd(&total_mass, mass_gpu[coord]);
 }
 
@@ -724,7 +796,7 @@ __global__ void LB_compute_stress(float *source_term_gpu, float *f1_gpu, float *
     }
 }
 
-__global__ void LB_add_gravity(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, float *rho_gpu, unsigned int *temp_cell_type_gpu)
+__global__ void LB_add_gravity(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, float *rho_gpu, unsigned int *temp_cell_type_gpu, float GRAV_CONST)
 {
     unsigned int idx = threadIdx.x + blockIdx.x * blockDim.x;
     unsigned int idy = threadIdx.y + blockIdx.y * blockDim.y;
@@ -734,7 +806,7 @@ __global__ void LB_add_gravity(float *Fx_gpu, float *Fy_gpu, float *Fz_gpu, floa
     float Cl = domain_size/max(max(lb_sim_domain[0], lb_sim_domain[1]), lb_sim_domain[2]);
     int coord = gpu_scalar_index(idx, idy, idz, lb_sim_domain);
     if(!(temp_cell_type_gpu[coord] == (OBSTACLE)))
-        atomicAdd(&Fy_gpu[coord], -1.0f * GRAV_CONST * rho_gpu[coord]);
+        atomicAdd(&Fy_gpu[coord], -1.0f * GRAV_CONST1 * rho_gpu[coord]);
 }
 
 __host__ void LB_clear_Forces(cudaStream_t *streams, int NX, int NY, int NZ)
@@ -747,12 +819,6 @@ __host__ void LB_clear_Forces(cudaStream_t *streams, int NX, int NY, int NZ)
     checkCudaErrors(cudaMemset ((void*)(count_loc), 0, total_lattice_points*sizeof(int)));
 
     checkCudaErrors(cudaMemset ((void*)(delMass), 0, total_lattice_points*sizeof(float)));
-
-    // checkCudaErrors(cudaMemsetAsync ((void*)(Fx_gpu), 0, total_lattice_points*sizeof(float), streams[0]));
-    // checkCudaErrors(cudaMemsetAsync ((void*)(Fy_gpu), 0, total_lattice_points*sizeof(float), streams[1]));
-    // checkCudaErrors(cudaMemsetAsync ((void*)(Fz_gpu), 0, total_lattice_points*sizeof(float), streams[2]));
-    // checkCudaErrors(cudaMemsetAsync ((void*)(source_term_gpu), 0, 19*total_lattice_points*sizeof(float), streams[3]));
-    // checkCudaErrors(cudaMemsetAsync ((void*)(count_loc), 0, total_lattice_points*sizeof(int), streams[4]));
     checkCudaErrors(cudaDeviceSynchronize());
 }
 
@@ -770,14 +836,6 @@ __host__ void LB_reset_max(cudaStream_t *streams)
     checkCudaErrors(cudaMemcpyToSymbol(max_Fz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyToSymbol(total_mass, &val_2, sizeof(float), 0, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyToSymbol(vel_factor, &val_3, sizeof(float), 0, cudaMemcpyHostToDevice));
-
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_rho, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[0]));
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_ux, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[1]));
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_uy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[2]));
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_uz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[3]));
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fx, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[4]));
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fy, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[5]));
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(max_Fz, &val_1, sizeof(float), 0, cudaMemcpyHostToDevice, streams[6]));
     checkCudaErrors(cudaDeviceSynchronize());
 }
 
@@ -874,10 +932,6 @@ __host__ void LB_init_symbols(int NX, int NY, int NZ, float Reynolds, float mu, 
     checkCudaErrors(cudaMemcpyToSymbol(lb_sim_domain, &nu, sizeof(int), 0, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyToSymbol(lb_sim_domain, &nv, sizeof(int), sizeof(int), cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpyToSymbol(lb_sim_domain, &nw, sizeof(int), 2*sizeof(int), cudaMemcpyHostToDevice));
-
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nu, sizeof(int), 0, cudaMemcpyHostToDevice, streams[0]));
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nv, sizeof(int), sizeof(int), cudaMemcpyHostToDevice, streams[1]));
-    // checkCudaErrors(cudaMemcpyToSymbolAsync(lb_sim_domain, &nw, sizeof(int), 2*sizeof(int), cudaMemcpyHostToDevice, streams[2]));
 }
 
 __host__ void LB_init_memory(float **rho, float **ux, float **uy, float **uz,
@@ -906,19 +960,6 @@ __host__ void LB_init_memory(float **rho, float **ux, float **uy, float **uz,
 
     checkCudaErrors(cudaMemset((void*)(count_loc), 0, mem_size_scalar));
     checkCudaErrors(cudaMemset((void*)(delMass), 0, mem_size_scalar));
-    
-
-    // checkCudaErrors(cudaMemcpyAsync((void*)(rho_gpu), (*rho), mem_size_scalar,  cudaMemcpyHostToDevice, streams[5]));
-    // checkCudaErrors(cudaMemcpyAsync((void*)(ux_gpu), (*ux), mem_size_scalar,  cudaMemcpyHostToDevice, streams[6]));
-    // checkCudaErrors(cudaMemcpyAsync((void*)(uy_gpu), (*uy), mem_size_scalar,  cudaMemcpyHostToDevice, streams[7]));
-    // checkCudaErrors(cudaMemcpyAsync((void*)(uz_gpu), (*uz), mem_size_scalar,  cudaMemcpyHostToDevice, streams[8]));
-
-    // checkCudaErrors(cudaMemsetAsync ((void*)(mass_gpu), 0, mem_size_scalar, streams[14]));
-
-    // checkCudaErrors(cudaMemsetAsync ((void*)(f1_gpu), 0, mem_size_ndir, streams[9]));
-    // checkCudaErrors(cudaMemsetAsync ((void*)(f2_gpu), 0, mem_size_ndir, streams[10]));
-    // checkCudaErrors(cudaMemsetAsync ((void*)(feq_gpu), 0, mem_size_ndir, streams[11]));
-    // checkCudaErrors(cudaMemsetAsync ((void*)(source_term_gpu), 0, mem_size_ndir, streams[12]));
 }
 
 __host__ float LB_init(int NX, int NY, int NZ, float Reynolds, float mu,
@@ -939,20 +980,12 @@ __host__ float LB_init(int NX, int NY, int NZ, float Reynolds, float mu,
     construct_interface<<<ngrid, nthx>>>(cell_type_gpu, mass_gpu, rho_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     copy_cell_type<<<ngrid, nthx>>>(temp_cell_type_gpu, cell_type_gpu);
-    // update_fluid_neigh<<<ngrid, nthx>>>(cell_type_gpu);
+
     LB_reset_max(streams);
     LB_clear_Forces(streams, NX, NY, NZ);
-    LB_add_gravity<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, cell_type_gpu);
+    LB_add_gravity<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, cell_type_gpu, GRAV_CONST);
     LB_equi_Initialization<<<ngrid, nthx>>>(f2_gpu, feq_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, Fx_gpu, Fy_gpu, Fz_gpu, cell_type_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
-#ifdef DEBUG
-    printf("At start of simulations.......\n");
-    update_max_params<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, cell_type_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
-    update_max_mass<<<ngrid, nthx>>>(mass_gpu, cell_type_gpu);
-    checkCudaErrors(cudaDeviceSynchronize());
-    check_max_params<<<1,1>>>();
-    checkCudaErrors(cudaDeviceSynchronize());
-#endif
 
     return total_size_allocated;
 }
@@ -981,31 +1014,35 @@ __host__ void LB_cleanup()
 }
 
 __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct,
-    void (*cal_force_spread_RB)(int, int, float, cudaStream_t *), 
-    void (*advect_velocity)(int, int, cudaStream_t *),
-    int num_threads, int num_mesh, cudaStream_t *streams)
+                            void (*cal_force_spread_RB)(int, int, float, cudaStream_t *), 
+                            void (*advect_velocity)(int, int, cudaStream_t *),
+                            int num_threads, int num_mesh, cudaStream_t *streams)
 {
     dim3 nthx(nThreads.x, nThreads.y, nThreads.z);
     dim3 ngrid(NX/nthx.x, NY/nthx.y, NZ/nthx.z);
+    int mem_size_scalar = NX*NY*NZ*sizeof(float);
 
-    LB_reset_max(streams);
     LB_clear_Forces(streams, NX, NY, NZ);
     checkCudaErrors(cudaDeviceSynchronize());
     LB_stream<<<ngrid, nthx>>>(f1_gpu, f2_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu, mass_gpu);
-    IF_stream_mass_transfer<<<ngrid, nthx>>>(f1_gpu, f2_gpu, rho_gpu, cell_type_gpu, mass_gpu, delMass);
-    LB_add_gravity<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, cell_type_gpu);
+    
     LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu);
-    // advect_velocity(num_threads, num_mesh, streams);
-    // cal_force_spread_RB(num_threads, num_mesh, Ct, streams);
-    // LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu, mass_gpu);
+    advect_velocity(num_threads, num_mesh, streams);
+    cal_force_spread_RB(num_threads, num_mesh, Ct, streams);
+    LB_add_gravity<<<ngrid, nthx>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, cell_type_gpu, GRAV_CONST);
+    
+    LB_compute_local_params<<<ngrid, nthx>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu);
+    
+    IF_stream_mass_transfer<<<ngrid, nthx>>>(f1_gpu, f2_gpu, rho_gpu, cell_type_gpu, mass_gpu, delMass);
     IF_cell_update_mass<<<ngrid, nthx>>>(rho_gpu, mass_gpu, delMass, cell_type_gpu);
     IF_update_cell_type<<<ngrid, nthx>>>(rho_gpu, mass_gpu, cell_type_gpu);
     IF_filled_nb_flag_update<<<ngrid, nthx>>>(cell_type_gpu);
     IF_filled_nb_DF_update<<<ngrid, nthx>>>(cell_type_gpu, f1_gpu, rho_gpu, ux_gpu, uy_gpu,uz_gpu, mass_gpu);
     IF_empty_nb_flag_update<<<ngrid, nthx>>>(cell_type_gpu);
-    checkCudaErrors(cudaMemset((void*)(delMass), 0, NX*NY*NZ*sizeof(float)));
+    checkCudaErrors(cudaMemset((void*)(delMass), 0, mem_size_scalar));
     IF_distribute_excess_mass<<<ngrid, nthx>>>(mass_gpu, rho_gpu, cell_type_gpu, delMass);
     IF_collect_fluid_mass<<<ngrid, nthx>>>(mass_gpu, cell_type_gpu, delMass, rho_gpu);
+    checkCudaErrors(cudaMemset ((void*)(delMass), 0, mem_size_scalar));
 
     LB_compute_equi_distribution<<<ngrid, nthx>>>(rho_gpu, ux_gpu, uy_gpu, uz_gpu, feq_gpu, cell_type_gpu);
     LB_compute_stress<<<ngrid, nthx>>>(source_term_gpu, f1_gpu, feq_gpu, strain_rate_gpu, cell_type_gpu);
@@ -1019,6 +1056,8 @@ __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct,
     update_total_mass<<<ngrid, nthx>>>(mass_gpu, cell_type_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     check_max_params<<<1,1>>>();
+    // checkCudaErrors(cudaMemcpy((void*)(temp_cell_type_gpu), (cell_type_gpu), mem_size_scalar,  cudaMemcpyDeviceToHost));
+
     copy_cell_type<<<ngrid, nthx>>>(temp_cell_type_gpu, cell_type_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     printf("\n");

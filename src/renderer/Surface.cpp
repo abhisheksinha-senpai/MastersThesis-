@@ -1,7 +1,7 @@
 #include "Definitions.hpp"
 #include "Particle.hpp"
 
-float fTargetValue = 1.0f;
+float fTargetValue = 0.5f;
 
 static const GLfloat a2fVertexOffset[8][3] =
 {

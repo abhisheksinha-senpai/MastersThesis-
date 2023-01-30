@@ -13,6 +13,8 @@
 #include "LatticeBoltzmann.cuh"
 #include "PBD.cuh"
 
+extern float GRAV_CONST;
+
 __host__ void display_init(GLFWwindow** window);
 
 __host__ void domain_init(int NX, int NY, int NZ,
@@ -29,10 +31,7 @@ __host__ void display ( float *rho, float*ux, float *uy, float *uz,
                         float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu,
                         int NX, int NY, int NZ, 
                         ParticleSystem &fluid, glm::f32vec3 mod_scale, glm::f32vec3 dis_scale,
-                        GLFWwindow** window, Shader& shader, Model &model, Geometry &fluidDomain,
-                        int num_mesh, Vertex **nodeLists, 
-                        int *vertex_size_per_mesh,
-                        cudaStream_t *streams);
+                        GLFWwindow** window, Shader& shader, Model &model, Geometry &fluidDomain);
 
 __host__ void scene_cleanup(Vertex **nodeLists, Vertex **nodeData, int *vertex_size_per_mesh,
                             float *rho, float *ux, float *uy, float *uz);

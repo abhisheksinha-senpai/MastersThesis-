@@ -20,9 +20,8 @@ class Mesh
     std::vector<unsigned int> indices;
     std::vector<Texture> textures;
     std::vector<Edge> edges;
-    std::vector<Tetrahedral> tets;
 
-    Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture> textures, std::vector<Tetrahedral> tets, std::vector<Edge> edges);
+    Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture> textures, std::vector<Edge> edges);
     void Draw(Shader &shader, glm::f32vec3 scale);
     unsigned int VAO_mesh, VBO_mesh, EBO_mesh;
     void setupMesh();

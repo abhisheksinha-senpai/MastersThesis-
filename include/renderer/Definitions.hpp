@@ -33,10 +33,10 @@ struct Vertex
     glm::f32vec3 Position;
     glm::f32vec3 Normal;
     glm::f32vec2 TexCoords;
-    glm::f32vec3 Base_Pos;
-    glm::f32vec3 Base_Vel;
+    glm::f32vec3 Base_Velocity;
     glm::f32vec3 Prev_Position;
     glm::f32vec3 Velocity;
+    glm::f32vec3 Force;
     float Area = 0.0f;
     float invMass = 0.0f;
 };

@@ -4,11 +4,12 @@
 #include "glm/glm.hpp"
 #include "Definitions.hpp"
 #include "utilities.cuh"
+#include "Helper.cuh"
 
 class Softbody
 {
 private:
-    void initPhysics(float edgeCompliance, float volCompliance);
+    void initPhysics(float edgeCompliance, float volCompliance, float Cl);
     int numVerts;
     int numTets;
     int numEdge;
@@ -17,8 +18,8 @@ private:
     Edge *edge;
 
 public:
-    Softbody(Vertex *body, int numVert, Tetrahedral* tets, int numTets, Edge *edgeList, int numEdge, float edgeCompliance, float volCompliance);
-    void preSolve(float dt, glm::f32vec3 force, glm::f32vec3 mod_scale);
+    Softbody(Vertex *body, int numVert, Edge *edgeList, int numEdge, float edgeCompliance, float volCompliance, float Cl);
+    void preSolve(float dt, glm::f32vec3 mod_scale, float Ct, float Cl);
     void solveVolumes(float dt);
     void SolveEdges(float dt);
     float getTetVolume(int tetId);

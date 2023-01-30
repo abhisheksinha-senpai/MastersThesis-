@@ -1,30 +1,27 @@
 #include "PBD.cuh"
 
-Softbody::Softbody(Vertex *body, int numVert, Tetrahedral* tets, int numTets, Edge *edgeList, int numEdge, float edgeCompliance, float volCompliance)
+Softbody::Softbody(Vertex *body, int numVert, Edge *edgeList, int numEdge, float edgeCompliance, float volCompliance, float Cl)
 {
     this->numVerts = numVert;
-    this->numTets = numTets;
     this->verts = body;
-    this->tets = tets;
     this->numEdge = numEdge;
     this->edge = edgeList;
-    initPhysics(edgeCompliance, volCompliance);
+    initPhysics(edgeCompliance, volCompliance, Cl);
 }
 
-void Softbody::initPhysics(float edgeCompliance, float volCompliance)
+void Softbody::initPhysics(float edgeCompliance, float volCompliance, float Cl)
 {
-    // printf(" Total vertices %d  Total Edges %d  Total Tets %d \n", numVerts, numEdge, numTets);
-    for (int i = 0; i < this->numTets; i++)
-    {
-        float vol = this->getTetVolume(i);
-        this->tets[i].V0 = vol;
-        this->tets[i].k = volCompliance;
-        float pInvMass = vol > 0.0 ? 1.0 / (vol / 4.0) : 0.0;
-        this->verts[this->tets[i].vertID[0]].invMass += pInvMass;
-        this->verts[this->tets[i].vertID[1]].invMass += pInvMass;
-        this->verts[this->tets[i].vertID[2]].invMass += pInvMass;
-        this->verts[this->tets[i].vertID[3]].invMass += pInvMass;
-    }
+    // for (int i = 0; i < this->numTets; i++)
+    // {
+    //     float vol = abs(this->getTetVolume(i));
+    //     this->tets[i].V0 = vol;
+    //     this->tets[i].k = volCompliance;
+    //     float pInvMass = vol > 0.0 ? 1.0 / (vol / 4.0) : 0.0;
+    //     this->verts[this->tets[i].vertID[0]].invMass += pInvMass;
+    //     this->verts[this->tets[i].vertID[1]].invMass += pInvMass;
+    //     this->verts[this->tets[i].vertID[2]].invMass += pInvMass;
+    //     this->verts[this->tets[i].vertID[3]].invMass += pInvMass;
+    // }
 
     for (int i = 0; i < this->numEdge; i++) 
     {
@@ -32,6 +29,11 @@ void Softbody::initPhysics(float edgeCompliance, float volCompliance)
         glm::f32vec3 id1 = this->verts[this->edge[i].vertID[1]].Position;
         this->edge[i].L0 = glm::length(id0-id1);
         this->edge[i].k = edgeCompliance;
+        float vol = this->edge[i].L0/Cl;
+        // printf(" %f ", vol);
+        float pInvMass = vol > 0.0 ? 1.0 / (vol / 2.0f) : 0.0;
+        this->verts[this->edge[i].vertID[0]].invMass += pInvMass;
+        this->verts[this->edge[i].vertID[1]].invMass += pInvMass;
     }
 }
 
@@ -68,13 +70,10 @@ void Softbody::SolveEdges(float dt)
         grads *= (1.0f/cur_length);
         float C = cur_length - edge[i].L0;
         float s = -C/(w + edge[i].k*alpha);
-        // if(abs(C)>1)
-        //     printf(" (%f %f) ", cur_length, edge[i].L0);
 
         this->verts[this->edge[i].vertID[0]].Position += grads*s*w0;
         this->verts[this->edge[i].vertID[1]].Position -= grads*s*w1;
     }
-    // printf(" illegal cond %d ", count);
 }
 
 void Softbody::solveVolumes(float dt) 
@@ -102,7 +101,7 @@ void Softbody::solveVolumes(float dt)
         if (w == 0.0f)
             continue;
 
-        float vol = this->getTetVolume(i);
+        float vol = abs(this->getTetVolume(i));
         float restVol = this->tets[i].V0;
         float C = vol - restVol;
         float s = -C / (w + alpha*this->tets[i].k);
@@ -112,16 +111,18 @@ void Softbody::solveVolumes(float dt)
     }
 }
 
-void Softbody::preSolve(float dt, glm::f32vec3 force, glm::f32vec3 dimensions)
+
+void Softbody::preSolve(float dt, glm::f32vec3 dimensions, float Ct, float Cl)
 {
-    // printf(" ))) Total vertices %d  Total Edges %d  Total Tets %d \n", numVerts, numEdge, numTets);
+    bool flag  = false;
+    // printf(" %f ", dt*(glm::length(glm::f32vec3(0.0f,GRAV_CONST, 0.0f)))*Cl/(Ct*Ct));
     for (int i = 0; i < this->numVerts; i++) 
     {
         if (this->verts[i].invMass == 0.0)
             continue;
-        this->verts[i].Velocity += dt*force;
+        this->verts[i].Base_Velocity -= dt*(this->verts[i].Force*Cl/(1000*Ct*Ct) + glm::f32vec3(0.0f,9.8, 0.0f));//+
         this->verts[i].Prev_Position = this->verts[i].Position;
-        this->verts[i].Position += dt*this->verts[i].Velocity;
+        this->verts[i].Position += dt*this->verts[i].Base_Velocity;
         float x = this->verts[i].Position.x;
         float y = this->verts[i].Position.y;
         float z = this->verts[i].Position.z;
@@ -137,8 +138,6 @@ void Softbody::preSolve(float dt, glm::f32vec3 force, glm::f32vec3 dimensions)
             this->verts[i].Position.z = 1.0f;
         else if(z>dimensions.z-2)
             this->verts[i].Position.z = dimensions.z-2;
-        // if(i==463 || i==176)
-        // printf(" (%f %f %f    %f) ", this->verts[i].Position.x, this->verts[i].Position.y, this->verts[i].Position.z, this->verts[i].invMass);
     }
 }
 
@@ -149,6 +148,6 @@ void Softbody::postSolve(float dt)
     {
         if (this->verts[i].invMass == 0.0)
             continue;
-        this->verts[i].Velocity = (this->verts[i].Position - this->verts[i].Prev_Position)*(1.0f/dt);
+        this->verts[i].Base_Velocity = (this->verts[i].Position - this->verts[i].Prev_Position)*(1.0f/dt);
     }
 }

@@ -32,7 +32,7 @@ void Model::loadModel(std::string path, glm::f32vec3 scale, glm::f32vec3 origin)
 {
     
     Assimp::Importer importer;
-    const aiScene *scene = importer.ReadFile(path, aiProcess_JoinIdenticalVertices );
+    const aiScene *scene = importer.ReadFile(path, aiProcess_JoinIdenticalVertices|aiProcess_Triangulate);//aiProcess_Triangulate|aiProcess_JoinIdenticalVertices);
 
     if(!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
     {
@@ -45,11 +45,13 @@ void Model::loadModel(std::string path, glm::f32vec3 scale, glm::f32vec3 origin)
     for(int i=0;i<meshes.size();i++)
     {
         vertices_total += meshes[i].vertices.size();
+        float temp;
         for(int j=0;j<meshes[i].vertices.size();j++)
         {
-            meshes[i].vertices[j].Position.x = (meshes[i].vertices[j].Position.x - minX)*scale.x/(maxX-minX) + origin.x;
-            meshes[i].vertices[j].Position.y = (meshes[i].vertices[j].Position.y - minY)*scale.y/(maxY-minY) + origin.y;
-            meshes[i].vertices[j].Position.z = (meshes[i].vertices[j].Position.z - minZ)*scale.z/(maxZ-minZ) + origin.z;
+            temp = meshes[i].vertices[j].Position.y;
+            meshes[i].vertices[j].Position.z = (meshes[i].vertices[j].Position.z)*scale.z + origin.z;//(meshes[i].vertices[j].Position.x - minX)*scale.x/(maxX-minX) + origin.x;
+            meshes[i].vertices[j].Position.x = (meshes[i].vertices[j].Position.x)*scale.x + origin.x;
+            meshes[i].vertices[j].Position.y = temp*scale.y + origin.y;
 
             if((maxX-minX) == 0)
                 printf("Same X\n");
@@ -57,7 +59,7 @@ void Model::loadModel(std::string path, glm::f32vec3 scale, glm::f32vec3 origin)
                 printf("Same Z\n");
             if((maxZ-minZ) == 0)
                 printf("Same Z\n");
-            meshes[i].vertices[j].Base_Pos = meshes[i].vertices[j].Position;
+            meshes[i].vertices[j].Prev_Position = meshes[i].vertices[j].Position;
         }
     }
     float ratio = (1.0f/3.0f);
@@ -65,12 +67,13 @@ void Model::loadModel(std::string path, glm::f32vec3 scale, glm::f32vec3 origin)
     {
         for(int j=0;j<meshes[i].indices.size();j+=3)
         {
-            glm::f32vec3 v1 = meshes[i].vertices[meshes[i].indices[i]].Position - meshes[i].vertices[meshes[i].indices[i+1]].Position;
-            glm::f32vec3 v2 = meshes[i].vertices[meshes[i].indices[i+2]].Position - meshes[i].vertices[meshes[i].indices[i+1]].Position;
+            glm::f32vec3 v1 = meshes[i].vertices[meshes[i].indices[j]].Position - meshes[i].vertices[meshes[i].indices[j+1]].Position;
+            glm::f32vec3 v2 = meshes[i].vertices[meshes[i].indices[j+2]].Position - meshes[i].vertices[meshes[i].indices[j+1]].Position;
             float area = 0.5f*glm::length(glm::cross(v1, v2));
-            meshes[i].vertices[meshes[i].indices[i]].Area += ratio*area;
-            meshes[i].vertices[meshes[i].indices[i+1]].Area += ratio*area;
-            meshes[i].vertices[meshes[i].indices[i+2]].Area += ratio*area;
+            //printf(" A %f ", area);
+            meshes[i].vertices[meshes[i].indices[j]].Area += ratio*area;
+            meshes[i].vertices[meshes[i].indices[j+1]].Area += ratio*area;
+            meshes[i].vertices[meshes[i].indices[j+2]].Area += ratio*area;
         }
     }
     printf("%f %f %f\n",  scale.x,  scale.y,  scale.z);
@@ -99,10 +102,10 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene)
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
     std::vector<Texture> textures;
-    std::vector<Tetrahedral> tets;
+    // std::vector<Tetrahedral> tets;
     std::unordered_map<std::pair<float, float>, bool, pair_hash> edgeList;
     std::vector<Edge> edges;
-    printf("*(&^*&^ Number vertices: %d\n", mesh->mNumVertices);
+
     for(unsigned int i = 0; i < mesh->mNumVertices; i++)
     {
         Vertex vertex;
@@ -113,11 +116,12 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene)
         vector.y = mesh->mVertices[i].y;
         vector.z = mesh->mVertices[i].z;
         vertex.Position = vector;
-        vertex.Base_Pos = vector;
+        vertex.Prev_Position = vector;
         vertex.Velocity = glm::f32vec3(0.0f);
-        vertex.Base_Vel = glm::f32vec3(0.0f);
+        vertex.Base_Velocity = glm::f32vec3(0.0f);
         vertex.Area = 0.0f;
-
+        vertex.Force = glm::f32vec3(0.0f);
+        
         minX = glm::min(minX, vector.x);
         maxX = glm::max(maxX, vector.x);
 
@@ -150,17 +154,17 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene)
     // process indices
     for(unsigned int i = 0; i < mesh->mNumFaces; i++)
     {
-        Tetrahedral tet;
+        // Tetrahedral tet;
         aiFace face = mesh->mFaces[i];
         for(unsigned int j = 0; j < face.mNumIndices; j++)
         {
             indices.push_back(face.mIndices[j]);
-            tet.vertID[j] = face.mIndices[j];
+            // tet.vertID[j] = face.mIndices[j];
             int one = std::min(face.mIndices[(j+1)%face.mNumIndices],face.mIndices[j]);
             int two = std::max(face.mIndices[j],face.mIndices[(j+1)%face.mNumIndices]);
             edgeList[std::make_pair(one, two)] = 1;
         }
-        tets.push_back(tet);
+        // tets.push_back(tet);
     }
     Edge e;
     for(auto kv : edgeList)
@@ -179,7 +183,7 @@ Mesh Model::processMesh(aiMesh *mesh, const aiScene *scene)
     std::vector<Texture> specularMaps = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular");
     textures.insert(textures.end(), specularMaps.begin(),specularMaps.end());
 
-    return Mesh(vertices, indices, textures, tets, edges);
+    return Mesh(vertices, indices, textures, edges);
 }
 
 std::vector<Texture> Model::loadMaterialTextures(aiMaterial *mat, aiTextureType type, std::string typeName)

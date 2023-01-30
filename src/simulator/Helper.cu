@@ -17,7 +17,7 @@ float lastY = SCR_HEIGHT / 2.0;
 float fov = 45.0f;
 
 glm::vec3 cameraPos = glm::vec3(camX, camY, camZ);
-glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
+glm::vec3 cameraFront = glm::vec3(-1.0f, 0.0f, 0.0f);
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
 glm::mat4 view = glm::mat4(1.0f);
@@ -53,6 +53,7 @@ __host__ void display_init(GLFWwindow** window)
     }
     stbi_set_flip_vertically_on_load(true);
     glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
     glfwSetInputMode(*window, GLFW_CURSOR, GLFW_CURSOR_NORMAL );
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable( GL_BLEND );
@@ -68,10 +69,7 @@ glm::f32vec3 scale, glm::f32vec3 origin)
     ourShader.create_vs_shader(ourShader.vertex_shader.c_str());
     ourShader.create_fs_shader(ourShader.fragment_shader.c_str());
     ourShader.compile();
-    // std::string model_name = "resources/backpack/backpack.obj";
-    // std::string model_name = "resources/Cup/cup.obj";
-    // std::string model_name = "resources/Cube/slime.obj";
-    std::string model_name = "resources/BlenderModels/Testing_without_Normals.obj";
+    std::string model_name = "resources/BlenderModels/Cube_8cuts.obj";
     ourModel = Model((char *)model_name.c_str(), scale, origin);
     printf("Model initialized.....\n");
 }
@@ -107,11 +105,14 @@ void domain_init(int NX, int NY, int NZ,
                 }
                 else
                 {
-                    if(j<1*NY/8)
+                    // if(j==3*NY/4 && j<8*NY/9 && i<8*NX/9 && i>NX/4 && k<8*NZ/9 && k>NZ/4)
+                    // if(j>7*NY/9 && j<8*NY/9)
+                    if(j<1*NY/20)
                         (*rho)[loc] = 1.0f;
-                        // else if((i>3*NX/8 && i<5*NX/8) && (j>3*NX/8 && j<5*NX/8) && (k>3*NX/8 && k<5*NX/8))
-                    else if(powf((i-NX/2), 2.0f)+powf((j-5*NY/8), 2.0f)+powf((k-NZ/2), 2.0f)<powf(NX/16, 2.0f))
-                        (*rho)[loc] = 1.0f;
+                    // if(powf((i-NX/2), 2.0f)+powf((j-5*NY/8), 2.0f)+powf((k-NZ/2), 2.0f)<powf(NX/16, 2.0f))
+                    //     (*rho)[loc] = 1.0f;
+                    // else if((j<NY*1/4))// && (i>NX/4 && i<3*NX/4) && (k<3*NZ/4 && k>NZ/4))
+                    //     (*rho)[loc] = 1.0f;
                     else
                         (*rho)[loc] = 0.001f;
                     (*ux)[loc] = 0.0f;
@@ -129,7 +130,7 @@ __host__ void scene_init(float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz
                          int NX, int NY, int NZ)
 {
     int sz = NX*NY*NZ*sizeof(float);
-    checkCudaErrors(cudaMemcpy(rho_gpu, rho, sz, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(temp_cell_type_gpu, rho, sz, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(ux_gpu, ux, sz, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(uy_gpu, uy, sz, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(uz_gpu, uz, sz, cudaMemcpyHostToDevice));
@@ -220,22 +221,8 @@ __host__ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
     }
 }
 
-__host__ void transfer_mesh_data(int num_mesh, Vertex **nodeLists, 
-                                int *vertex_size_per_mesh,
-                                cudaStream_t *streams, Model &objModel)
+__host__ void draw_model( GLFWwindow* window, Shader& shader, Model& objmodel, glm::f32vec3 scale)
 {
-    for(int i=0;i<num_mesh;i++)
-        checkCudaErrors(cudaMemcpyAsync(&objModel.meshes[i].vertices[0], nodeLists[i], vertex_size_per_mesh[i]*sizeof(Vertex), cudaMemcpyDeviceToHost, streams[i]));
-}
-
-__host__ void draw_model( GLFWwindow* window, Shader& shader, Model& objmodel,
-                          glm::f32vec3 scale, 
-                          int num_mesh, Vertex **nodeLists, 
-                          int *vertex_size_per_mesh,
-                          cudaStream_t *streams)
-{
-    // transfer_mesh_data(num_mesh, nodeLists, vertex_size_per_mesh, streams, objmodel);
-    // checkCudaErrors(cudaDeviceSynchronize());
     shader.use();
     // view/projection transformations
     view = glm::lookAt(cameraPos, cameraPos+cameraFront, cameraUp);
@@ -254,9 +241,9 @@ __host__ void transfer_fluid_data(float *rho, float*ux, float *uy,float *uz,
 {
     int sz = NX*NY*NZ*sizeof(float);
     cudaMemcpy(rho, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(ux, (void *)ux_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(uy, (void *)uy_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(uz, (void *)uz_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(ux, (void *)Fx_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(uy, (void *)Fy_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(uz, (void *)Fz_gpu, sz, cudaMemcpyDeviceToHost);
 }
 
 __host__ void draw_fluid(float *rho, float*ux, float *uy, float *uz,
@@ -276,23 +263,16 @@ __host__ void display ( float *rho, float*ux, float *uy, float *uz,
                         float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu,
                         int NX, int NY, int NZ, 
                         ParticleSystem &fluid, glm::f32vec3 mod_scale, glm::f32vec3 dis_scale,
-                        GLFWwindow** window, Shader& shader, Model &model, Geometry &fluidDomain, 
-                        int num_mesh, Vertex **nodeLists, 
-                        int *vertex_size_per_mesh,
-                        cudaStream_t *streams)
+                        GLFWwindow** window, Shader& shader, Model &model, Geometry &fluidDomain)
 {
     glClearColor(0.35f, 0.15f, 0.35f, 0.05f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    draw_model( *window, shader, model, dis_scale, 
-                num_mesh, nodeLists, vertex_size_per_mesh, streams);
+    draw_model( *window, shader, model, dis_scale);
 
     fluidDomain.draw_geometry(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp);
     
-    // draw_fluid(rho, ux, uy,uz,
-    //            mass_gpu, ux_gpu, uy_gpu, uz_gpu,
-    //            NX, NY, NZ, 
-    //            fluid, mod_scale, dis_scale);
+    draw_fluid(rho, ux, uy,uz, mass_gpu, ux_gpu, uy_gpu, uz_gpu, NX, NY, NZ, fluid, mod_scale, dis_scale);
 
     processInput(*window);
     glfwPollEvents();
