@@ -6,9 +6,9 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 float camradius = 7.0f;
 float cameraspeed = 0.02f;
-float camX = camradius;
+float camX = 0.0f;
 float camY = 0.0f;
-float camZ = 0.0f;
+float camZ = camradius;
 bool firstMouse = true;
 float yaw = -90.0f;
 float pitch = 0.0f;
@@ -17,13 +17,23 @@ float lastY = SCR_HEIGHT / 2.0;
 float fov = 45.0f;
 
 glm::vec3 cameraPos = glm::vec3(camX, camY, camZ);
-glm::vec3 cameraFront = glm::vec3(-1.0f, 0.0f, 0.0f);
+glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
 glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
 glm::mat4 view = glm::mat4(1.0f);
 glm::mat4 model = glm::mat4(1.0f);
 glm::mat4 proj = glm::mat4(1.0f);
 
+unsigned int HOST_FLUID = (unsigned int)(1 << 0);
+unsigned int HOST_INTERFACE  = (unsigned int)(1 << 1);
+unsigned int HOST_EMPTY =  (unsigned int)(1 << 2);
+unsigned int HOST_OBSTACLE =  (unsigned int)(1 << 3);
+unsigned int HOST_IF_TO_FLUID = ((unsigned int)(1 << 1)|(unsigned int)(1 << 0));
+unsigned int HOST_IF_TO_EMPTY = ((unsigned int)(1 << 1)|(unsigned int)(1 << 2));
+unsigned int HOST_EMPTY_TO_IF = (unsigned int)(1 << 0)|((unsigned int)(1 << 1)|(unsigned int)(1 << 2));
+unsigned int HOST_INLET = (unsigned int)(1 << 4);
+unsigned int HOST_OUTLET = (unsigned int)(1 << 5);
+unsigned int HOST_OBSTACLE_MOVING = (unsigned int)(1 << 6);
 
 __host__ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn);
 __host__ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -69,15 +79,14 @@ glm::f32vec3 scale, glm::f32vec3 origin)
     ourShader.create_vs_shader(ourShader.vertex_shader.c_str());
     ourShader.create_fs_shader(ourShader.fragment_shader.c_str());
     ourShader.compile();
-    std::string model_name = "resources/BlenderModels/Cube_8cuts.obj";
+    std::string model_name = "resources/BlenderModels/Cube_8cuts_8Tets_NoNorms.obj";
     ourModel = Model((char *)model_name.c_str(), scale, origin);
     printf("Model initialized.....\n");
 }
 
-void domain_init(int NX, int NY, int NZ,
-                float **rho, float **ux, float **uy,float **uz)
+void domain_init(glm::f32vec3 simDimention, float **rho, float **ux, float **uy,float **uz, int dim)
 {
-    int sz = NX*NY*NZ*sizeof(float);
+    int sz = simDimention.x*simDimention.y*simDimention.z*sizeof(float);
     *rho = (float *)malloc(sz);
     *ux =  (float *)malloc(sz);
     *uy =  (float *)malloc(sz);
@@ -89,14 +98,20 @@ void domain_init(int NX, int NY, int NZ,
     memset(*uz, 0, sz);
     
     int loc = 0, X1, Y1, Z1;
-    for(int j=0;j<NY;j++)
+    bool cond=false;
+    for(int j=0;j<simDimention.y;j++)
     {
-        for(int i=0;i<NX;i++)
+        for(int i=0;i<simDimention.x;i++)
         {
-            for(int k=0;k<NZ;k++)
+            for(int k=0;k<simDimention.z;k++)
             {
-                loc = i+j*NX+k*NX*NY;
-                if(i == 0 || j == 0 || k == 0 || i == NX-1 || j == NY-1 || k == NZ-1)
+                loc = i+j*simDimention.x+k*simDimention.x*simDimention.y;
+                if(dim == 3)
+                    cond = (i == 0 || j == 0 || k == 0 || i == simDimention.x-1 || j == simDimention.y-1 || k == simDimention.z-1);
+                else if(dim ==2)
+                    cond = (i == 0 || j == 0 || i == simDimention.x-1 || j == simDimention.y-1);
+
+                if(cond)
                 {
                     (*rho)[loc] = 99999.0f;
                     (*ux)[loc] = 0.0f;
@@ -107,14 +122,15 @@ void domain_init(int NX, int NY, int NZ,
                 {
                     // if(j==3*NY/4 && j<8*NY/9 && i<8*NX/9 && i>NX/4 && k<8*NZ/9 && k>NZ/4)
                     // if(j>7*NY/9 && j<8*NY/9)
-                    if(j<1*NY/20)
+                    // if(j<1*simDimention.y/4)
                         (*rho)[loc] = 1.0f;
-                    // if(powf((i-NX/2), 2.0f)+powf((j-5*NY/8), 2.0f)+powf((k-NZ/2), 2.0f)<powf(NX/16, 2.0f))
+                    // else if(powf((i-simDimention.x/2), 2.0f)+powf((j-5*simDimention.y/8), 2.0f)+powf((k-simDimention.z/2), 2.0f)<powf(simDimention.x/16, 2.0f))
+                    // else if(powf((i-simDimention.x/2), 2.0f)+powf((j-5*simDimention.y/8), 2.0f)<powf(10.0f, 2.0f))
                     //     (*rho)[loc] = 1.0f;
                     // else if((j<NY*1/4))// && (i>NX/4 && i<3*NX/4) && (k<3*NZ/4 && k>NZ/4))
                     //     (*rho)[loc] = 1.0f;
-                    else
-                        (*rho)[loc] = 0.001f;
+                    // else
+                    //     (*rho)[loc] = 0.001f;
                     (*ux)[loc] = 0.0f;
                     (*uy)[loc] = 0.0f;
                     (*uz)[loc] = 0.0f;
@@ -130,7 +146,7 @@ __host__ void scene_init(float *rho_gpu, float *ux_gpu, float *uy_gpu, float *uz
                          int NX, int NY, int NZ)
 {
     int sz = NX*NY*NZ*sizeof(float);
-    checkCudaErrors(cudaMemcpy(temp_cell_type_gpu, rho, sz, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(rho, rho, sz, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(ux_gpu, ux, sz, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(uy_gpu, uy, sz, cudaMemcpyHostToDevice));
     checkCudaErrors(cudaMemcpy(uz_gpu, uz, sz, cudaMemcpyHostToDevice));
@@ -235,45 +251,47 @@ __host__ void draw_model( GLFWwindow* window, Shader& shader, Model& objmodel, g
     model = glm::mat4(1);
 }
 
-__host__ void transfer_fluid_data(float *rho, float*ux, float *uy,float *uz,
-                                  float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu, 
-                                  int NX, int NY, int NZ)
+__host__ void displayModel( GLFWwindow** window, Shader& shader, Model& objmodel, glm::f32vec3 scale)
 {
-    int sz = NX*NY*NZ*sizeof(float);
-    cudaMemcpy(rho, (void *)mass_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(ux, (void *)Fx_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(uy, (void *)Fy_gpu, sz, cudaMemcpyDeviceToHost);
-    cudaMemcpy(uz, (void *)Fz_gpu, sz, cudaMemcpyDeviceToHost);
+    shader.use();
+    // view/projection transformations
+    view = glm::lookAt(cameraPos, cameraPos+cameraFront, cameraUp);
+    proj = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
+
+    glUniformMatrix4fv(glGetUniformLocation(shader.get_shader_pgm(), "view"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(shader.get_shader_pgm(), "projection"), 1, GL_FALSE, glm::value_ptr(proj));
+    // render the loaded model
+    objmodel.Draw(shader, scale);
+    model = glm::mat4(1);
 }
 
-__host__ void draw_fluid(float *rho, float*ux, float *uy, float *uz,
-                         float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu,
-                         int NX, int NY, int NZ, 
-                         ParticleSystem &fluid, glm::f32vec3 model_scale, glm::f32vec3 dis_scale)
+__host__ void displayDomain(Geometry &fluidDomain)
 {
-    transfer_fluid_data(rho, ux, uy, uz,
-                        mass_gpu, ux_gpu, uy_gpu, uz_gpu,
-                        NX, NY, NZ);
-    
-    fluid.update_particles(NX, NY, NZ, rho, ux, uy, uz, model_scale);
+    fluidDomain.draw_geometry(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp);
+}
+
+__host__ void displayFluid(float *rho, float*ux, float *uy, float *uz,
+                            float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu,
+                            int NX, int NY, int NZ, ParticleSystem &fluid, glm::f32vec3 dis_scale)
+{
+    int sz = NX*NY*NZ*sizeof(float);
+    cudaMemcpy(rho, (void *)temp_cell_type_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(ux, (void *)ux_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(uy, (void *)uy_gpu, sz, cudaMemcpyDeviceToHost);
+    cudaMemcpy(uz, (void *)uz_gpu, sz, cudaMemcpyDeviceToHost);
+
+    fluid.update_particles(NX, NY, NZ, rho, ux, uy, uz);
     fluid.draw_particles(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp, dis_scale);
 }
-int n = 0;
-__host__ void display ( float *rho, float*ux, float *uy, float *uz,
-                        float *rho_gpu, float *ux_gpu, float*uy_gpu, float* uz_gpu,
-                        int NX, int NY, int NZ, 
-                        ParticleSystem &fluid, glm::f32vec3 mod_scale, glm::f32vec3 dis_scale,
-                        GLFWwindow** window, Shader& shader, Model &model, Geometry &fluidDomain)
+
+__host__ void preDisplay()
 {
     glClearColor(0.35f, 0.15f, 0.35f, 0.05f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+}
 
-    draw_model( *window, shader, model, dis_scale);
-
-    fluidDomain.draw_geometry(SCR_WIDTH, SCR_HEIGHT, cameraPos, cameraFront, cameraUp);
-    
-    draw_fluid(rho, ux, uy,uz, mass_gpu, ux_gpu, uy_gpu, uz_gpu, NX, NY, NZ, fluid, mod_scale, dis_scale);
-
+__host__ void postDisplay(GLFWwindow** window)
+{
     processInput(*window);
     glfwPollEvents();
     glfwSwapBuffers(*window);

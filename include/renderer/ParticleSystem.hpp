@@ -13,7 +13,7 @@ class ParticleSystem
     unsigned int VAO_1, VBO_1;
 public:
     ParticleSystem(int NX, int NY, int NZ, glm::f32vec3 model_scale, float *mass);
-    void update_particles(int NX, int NY, int NZ, float *mass, float *ux, float *uy, float *uz, glm::f32vec3 model_scale);
+    void update_particles(int NX, int NY, int NZ, float *mass, float *ux, float *uy, float *uz);
     void draw_particles(int SCR_WIDTH, int SCR_HEIGHT, glm::vec3 cameraPos, glm::vec3 cameraFront, glm::vec3 cameraUp, glm::f32vec3 dis_scale);
     ~ParticleSystem();
 };

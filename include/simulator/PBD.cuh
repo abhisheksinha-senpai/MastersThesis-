@@ -8,7 +8,7 @@
 
 class Softbody
 {
-private:
+public:
     void initPhysics(float edgeCompliance, float volCompliance, float Cl);
     int numVerts;
     int numTets;

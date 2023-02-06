@@ -1,16 +1,5 @@
 #include "ParticleSystem.hpp"
 
-unsigned int FLUID = (unsigned int)(1 << 0);
-unsigned int INTERFACE  = (unsigned int)(1 << 1);
-unsigned int EMPTY =  (unsigned int)(1 << 2);
-unsigned int OBSTACLE =  (unsigned int)(1 << 3);
-unsigned int NO_FLUID_NEIGH =  (unsigned int)(1 << 4);
-unsigned int NO_EMPTY_NEIGH =  (unsigned int)(1 << 5);
-unsigned int NO_IFACE_NEIGH =  (unsigned int)(1 << 6);
-unsigned int IF_TO_FLUID = ((unsigned int)(1 << 1)|(unsigned int)(1 << 0));
-unsigned int IF_TO_EMPTY = ((unsigned int)(1 << 1)|(unsigned int)(1 << 2));
-unsigned int EMPTY_TO_IF = (unsigned int)(1 << 0)|((unsigned int)(1 << 1)|(unsigned int)(1 << 2));
-
 ParticleSystem::ParticleSystem(int NX, int NY, int NZ, glm::f32vec3 model_scale, float *mass)
 {
     ResourceManager r_manager = ResourceManager();
@@ -20,11 +9,11 @@ ParticleSystem::ParticleSystem(int NX, int NY, int NZ, glm::f32vec3 model_scale,
     fluidShader.create_fs_shader(fluidShader.fragment_shader.c_str());
     fluidShader.compile();
     printf("Fluid shader loaded.....\n");
-    for(int i=1;i<NX-1;i++)
+    for(int i=0;i<NX;i++)
     {
-        for(int j=1;j<NY-1;j++)
+        for(int j=0;j<NY;j++)
         {
-            for(int k=1;k<NZ-1;k++)
+            for(int k=0;k<NZ;k++)
             {
                 // marching_cube(i, j, k, NX, NY, NZ, mass, fluid);
                 glm::f32vec3 position = glm::f32vec3((float)i,(float)j,(float)k);
@@ -40,7 +29,7 @@ ParticleSystem::ParticleSystem(int NX, int NY, int NZ, glm::f32vec3 model_scale,
     printf("Fluids initiliazed.....\n");
 }
 
-void ParticleSystem::update_particles(int NX, int NY, int NZ, float *mass, float *ux, float *uy, float *uz, glm::f32vec3 model_scale)
+void ParticleSystem::update_particles(int NX, int NY, int NZ, float *mass, float *ux, float *uy, float *uz)
 {
     // std::vector<Drop>().swap(fluid);
     // for(int i=1;i<NX-1;i++)
@@ -60,9 +49,9 @@ void ParticleSystem::update_particles(int NX, int NY, int NZ, float *mass, float
         float z = (fluid[i].Position.z);
         int loc = (int)(x+y*NX+z*NX*NY);
         float vel = glm::length(glm::f32vec3(ux[loc], uy[loc], uz[loc]));
-        // fluid[i].Color = glm::vec4(((unsigned int)mass[loc] == INTERFACE), ((unsigned int)mass[loc] == FLUID), ((unsigned int)mass[loc] == EMPTY), ((unsigned int)mass[loc] == (INTERFACE)) || ((unsigned int)mass[loc] == (FLUID)));
-        // fluid[i].Color = glm::vec4(100.0f*(abs(ux[loc])),1000.0f*(abs(uy[loc])), 1000.0f*(abs(uz[loc])), ((unsigned int)mass[loc] == (INTERFACE)) || ((unsigned int)mass[loc] == (FLUID)));
-        fluid[i].Color = glm::vec4(mass[loc], mass[loc], mass[loc], mass[loc]);
+        // fluid[i].Color = glm::vec4(((unsigned int)mass[loc] == HOST_INTERFACE), ((unsigned int)mass[loc] == HOST_FLUID), ((unsigned int)mass[loc] == HOST_EMPTY), ((unsigned int)mass[loc] == (HOST_INTERFACE)) || ((unsigned int)mass[loc] == (HOST_FLUID)) || ((unsigned int)mass[loc] == (HOST_EMPTY))||((unsigned int)mass[loc] == (HOST_OBSTACLE)));
+        fluid[i].Color = glm::vec4(100.0f*((ux[loc])), 100.0f*((uy[loc])), 100.0f*(abs(uz[loc])), ((unsigned int)mass[loc] == (HOST_INTERFACE)) || ((unsigned int)mass[loc] == (HOST_FLUID)));
+        // fluid[i].Color = glm::f32vec4(mass[loc], mass[loc], mass[loc], mass[loc]/2.0f);
         // fluid[i].Color = glm::vec4(ux[loc]/uy[loc], ux[loc], uy[loc], ((int)mass[loc] & (FLUID|INTERFACE)));
         // if((int)mass[loc] & INTERFACE && ((int)y == 3*NY/4) && ((int)x == 4*NX/8))
         //     fluid[i].Color = glm::vec4(0,ux[loc]/uy[loc], 0, ((int)mass[loc] & (FLUID|INTERFACE)));
@@ -73,7 +62,7 @@ void ParticleSystem::draw_particles(int SCR_WIDTH, int SCR_HEIGHT, glm::vec3 cam
 {
     fluidShader.use();
     glm::mat4 model = glm::mat4(1);
-    model = glm::translate(model, glm::f32vec3(-1, -1, -1));
+    // model = glm::translate(model, glm::f32vec3(-1.0f, -0.25, 0));
     model = glm::scale(model, dis_scale);
     
     glm::mat4 view = glm::lookAt(cameraPos, cameraPos+cameraFront, cameraUp); 

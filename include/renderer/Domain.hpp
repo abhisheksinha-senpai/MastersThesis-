@@ -7,7 +7,7 @@
 class Geometry
 {
 private:
-	float br;
+	glm::f32vec3 br;
 
 	float body[252] = {
         // positions         // colors
@@ -52,7 +52,7 @@ private:
     Shader domainShader;
     glm::f32vec3 position;
 public:
-    Geometry(float scale);
+    Geometry(glm::f32vec3 scale);
 	void draw_geometry(int SCR_WIDTH, int SCR_HEIGHT, glm::vec3 cameraPos, glm::vec3 cameraFront, glm::vec3 cameraUp);
     ~Geometry();
 };

@@ -56,4 +56,17 @@ struct Tetrahedral
     float k;
 };
 
+extern unsigned int HOST_FLUID;
+extern unsigned int HOST_INTERFACE;
+extern unsigned int HOST_EMPTY;
+extern unsigned int HOST_OBSTACLE;
+extern unsigned int HOST_NO_FLUID_NEIGH;
+extern unsigned int HOST_NO_EMPTY_NEIGH;
+extern unsigned int HOST_NO_IFACE_NEIGH;
+extern unsigned int HOST_IF_TO_FLUID;
+extern unsigned int HOST_IF_TO_EMPTY;
+extern unsigned int HOST_EMPTY_TO_IF;
+extern unsigned int HOST_INLET;
+extern unsigned int HOST_OUTLET;
+extern unsigned int HOST_OBSTACLE_MOVING;
 #endif

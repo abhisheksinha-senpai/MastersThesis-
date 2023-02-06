@@ -8,8 +8,6 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-const dim3 nThreads(64, 16, 1);
-
 extern float *Fx_gpu, *Fy_gpu, *Fz_gpu;
 extern float *rho_gpu, *ux_gpu, *uy_gpu, *uz_gpu;
 extern float *f1_gpu, *f2_gpu, *feq_gpu, *source_term_gpu;
@@ -21,16 +19,16 @@ extern float *temp_cell_type_gpu;
 extern float *count_loc;
 extern float *Fbx_gpu, *Fby_gpu, *Fbz_gpu;
 
-__device__ unsigned int FLUID = (unsigned int)(1 << 0);
-__device__ unsigned int  INTERFACE  = (unsigned int)(1 << 1);
-__device__ unsigned int  EMPTY =  (unsigned int)(1 << 2);
-__device__ unsigned int  OBSTACLE =  (unsigned int)(1 << 3);
-__device__ unsigned int  NO_FLUID_NEIGH =  (unsigned int)(1 << 4);
-__device__ unsigned int  NO_EMPTY_NEIGH =  (unsigned int)(1 << 5);
-__device__ unsigned int  NO_IFACE_NEIGH =  (unsigned int)(1 << 6);
-__device__ unsigned int  IF_TO_FLUID = ((unsigned int)(1 << 1)|(unsigned int)(1 << 0));
-__device__ unsigned int  IF_TO_EMPTY = ((unsigned int)(1 << 1)|(unsigned int)(1 << 2));
-__device__ unsigned int  EMPTY_TO_IF = (unsigned int)(1 << 0)|((unsigned int)(1 << 1)|(unsigned int)(1 << 2));
+__device__ unsigned int FLUID;
+__device__ unsigned int INTERFACE;
+__device__ unsigned int EMPTY;
+__device__ unsigned int OBSTACLE;
+__device__ unsigned int IF_TO_FLUID;
+__device__ unsigned int IF_TO_EMPTY;
+__device__ unsigned int EMPTY_TO_IF;
+__device__ unsigned int INLET;
+__device__ unsigned int OUTLET;
+__device__ unsigned int OBSTACLE_MOVING;
 
 #define checkCudaErrors(err)  __checkCudaErrors(err,#err,__FILE__,__LINE__)
 #define getLastCudaError(msg)  __getLastCudaError(msg,__FILE__,__LINE__)

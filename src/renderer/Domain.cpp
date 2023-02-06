@@ -4,8 +4,9 @@ void Geometry::draw_geometry(int SCR_WIDTH, int SCR_HEIGHT, glm::vec3 cameraPos,
 {
     domainShader.use();
     glm::mat4 model = glm::mat4(1);
-    glm::vec3 dis_scale = glm::vec3(br, br, br);
-    model = glm::scale(model, dis_scale);
+    model = glm::translate(model, br);
+    model = glm::scale(model, br);
+
     glm::mat4 view = glm::lookAt(cameraPos, cameraPos+cameraFront, cameraUp); 
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 1000.0f);
     glUniformMatrix4fv(glGetUniformLocation(domainShader.get_shader_pgm(), "view_domain"), 1, GL_FALSE, glm::value_ptr(view));
@@ -34,7 +35,7 @@ void Geometry::draw_geometry(int SCR_WIDTH, int SCR_HEIGHT, glm::vec3 cameraPos,
     // glDeleteVertexArrays(1, &VAO);
 }
 
-Geometry::Geometry(float scale): br(scale)
+Geometry::Geometry(glm::f32vec3 scale): br(scale)
 {
     ResourceManager r_manager = ResourceManager();
     r_manager.load_shader("resources/shaders/vertex/domain_shader.vs", "VERTEX", domainShader.vertex_shader);

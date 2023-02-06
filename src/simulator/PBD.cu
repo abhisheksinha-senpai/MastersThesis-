@@ -138,6 +138,7 @@ void Softbody::preSolve(float dt, glm::f32vec3 dimensions, float Ct, float Cl)
             this->verts[i].Position.z = 1.0f;
         else if(z>dimensions.z-2)
             this->verts[i].Position.z = dimensions.z-2;
+        this->verts[i].Force = glm::f32vec3(0.0f);
     }
 }
 
