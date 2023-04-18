@@ -25,9 +25,9 @@ int main(int argc, char* argv[])
     GLFWwindow* window;
 
     dim3 num_threads(32, 32, 1);
-    int NX = 64;
-    int NY = 64;
-    int NZ = 16;
+    int NX = 256;
+    int NY = 256;
+    int NZ = 4;
     glm::f32vec3 simDimention = glm::f32vec3(NX, NY, NZ);
 
     float Re_lattice = 100.0f;
@@ -76,9 +76,10 @@ int main(int argc, char* argv[])
     int KK = 0;
     float time_elapsed = 0.0f;
     bool flag_FSI = false;
+    int total_timesteps = 10000;
     while(!glfwWindowShouldClose(window))
     {
-        if((((float)(clock() - cur_time2))/CLOCKS_PER_SEC>0.08f) && (((float)(clock() - start_time))/CLOCKS_PER_SEC>2.00f )&& KK++<20000)
+        if((((float)(clock() - cur_time2))/CLOCKS_PER_SEC>0.08f) && (((float)(clock() - start_time))/CLOCKS_PER_SEC>2.00f && KK++<total_timesteps))
         {
             float del_time = Ct;//((clock() - (float)cur_time2)/CLOCKS_PER_SEC);
             LB_simulate_RB(NX, NY, NZ, Ct, IBM_force_spread_RB, IBM_vel_spread_RB, num_threads, num_mesh, flag_FSI);
@@ -108,19 +109,23 @@ int main(int argc, char* argv[])
             cur_time2 = clock();
             time_elapsed += Ct;
             
+            
         }
-
+        if(KK==total_timesteps)
+            break;
         if(((float)(clock() - cur_time1))/CLOCKS_PER_SEC>1/30.0f)
         {
             preDisplay();
-            displayDomain(fluidDomain);
+            //displayDomain(fluidDomain);
             // displayModel(&window, ourShader, ourModel, dis_scale);
             displayFluid(rho, ux, uy, uz, rho_gpu, ux_gpu, uy_gpu, uz_gpu, NX, NY, NZ, myfluid, dis_scale);
             postDisplay(&window);
             cur_time1 = clock();
         }
     }
-    
+    // logger("UX", ux, ux_gpu, 10000, NX, NY, NZ, Cl, Ct);
+    // logger("UY", uy, uy_gpu, 10000, NX, NY, NZ, Cl, Ct);
+
     IBM_cleanup(num_mesh);
 
     LB_cleanup();

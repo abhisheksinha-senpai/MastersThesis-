@@ -49,7 +49,7 @@ $(ODIR)/%.o: %.cu
 
 LIBS = -lassimp -lglfw -lGL -lX11 -lpthread -lXrandr -lXi -ldl
 CUDA_LD_FLAGS = --gpu-architecture=sm_75 -lcudart --default-stream per-thread
-OBJECTS = $(EXTOBJECTS) $(CPPOBJECTS) $(CUDAOBJECTS) $(ODIR)/main.o 
+OBJECTS = $(EXTOBJECTS) $(CPPOBJECTS) $(CUDAOBJECTS) $(ODIR)/Logger.o $(ODIR)/main.o
 $(APP): $(OBJECTS)
 	$(CUDACC) $(OBJECTS) -o $(APP) $(LIBS) $(CUDA_LD_FLAGS)
 	rm -f *.csv out*

@@ -655,7 +655,7 @@ __global__ void LB_collide(float *f1_gpu, float* f2_gpu, float *feq_gpu, float *
         float quant = powf(non_dim_nu, 2.0f)+18.0f*SMAGRINSKY_CONST*SMAGRINSKY_CONST*sqrt(strain_rate_gpu[coord]);
         float S = (1.0f/(6.0f*powf(SMAGRINSKY_CONST, 2.0f)))*(sqrt(quant) - non_dim_nu);
         // float tau = cs_inv_sq * (non_dim_nu + SMAGRINSKY_CONST*SMAGRINSKY_CONST*S)+0.5f;
-        float tau = non_dim_tau;//+0.5f;
+        float tau = non_dim_tau;
         float tau_inv = (1.0f/tau);
         for(int i =0;i<19;i++)
         {
@@ -864,21 +864,21 @@ __global__ void copy_cell_type(float *temp_cell_type_gpu, unsigned int *cell_typ
 
 __host__ void LB_compute_sim_param(int NX, int NY, int NZ, float viscosity, float Re)
 {
-    float domain_size = 2.0;
+    float domain_size = 1.0;
     float cs_inv_sq = 3.0f;
     float lat_l_no_dim = max(max(NX, NY), NZ);
-    
+    float velocity = 0.1f;
     float L_lattice = domain_size/lat_l_no_dim;//l*
-    float vis = domain_size*1.0f/Re;
-    float tau_star = 1.25f;
-    float nu_star = cs_inv_sq*(tau_star-0.5f);
-    float deltaT = cs_inv_sq*(tau_star-0.5f)*L_lattice*L_lattice/vis;
+    float vis = domain_size*velocity/Re;
+    float tau_star = 1.5f+0.5f;
+    float nu_star = (1.0f/cs_inv_sq)*(tau_star-1.0f);
+    float deltaT = nu_star*L_lattice*L_lattice/vis;
     // float deltaT = sqrt(HOST_GRAV_CONST*L_lattice/10.0f);
     // float nu_star = viscosity*(deltaT/(L_lattice*L_lattice));
-    ;//cs_inv_sq*(nu_star) +0.5f;
+    //cs_inv_sq*(nu_star) +0.5f;
     float Cu = L_lattice/deltaT;
     bool flag  = false;
-    if(Cu>sqrt(1.0f/cs_inv_sq))
+    if((velocity/Cu)>sqrt(1.0f/cs_inv_sq))
         flag = true;
 
     checkCudaErrors(cudaMemcpyToSymbol(non_dim_tau, &tau_star, sizeof(float), 0, cudaMemcpyHostToDevice));
@@ -890,8 +890,9 @@ __host__ void LB_compute_sim_param(int NX, int NY, int NZ, float viscosity, floa
     printf("Lattice Reynolds number : %f\n", Re);
     printf("non dimentional del T :%f\n", deltaT);
     printf("non dimentional tau :%f\n", tau_star);
-    printf("non dimentional Viscosity :%f\n", nu_star);
+    printf("non dimentional Viscosity :%f, \t normal Viscosity :%f\n", nu_star, vis);
     printf("non dimentional gravity %f\n", HOST_GRAV_CONST);
+    printf("Lattice Velocity %f\n", Re*nu_star/lat_l_no_dim);
     printf("Velocity conversion factor %f\n", L_lattice/deltaT);
     checkCudaErrors(cudaDeviceSynchronize());
     assert(!flag);
@@ -1045,28 +1046,28 @@ __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct, void (*cal_force_
     int mem_size_scalar = NX*NY*NZ*sizeof(float);
     LB_clear_Forces(NX, NY, NZ);
     checkCudaErrors(cudaDeviceSynchronize());
-    LB_stream<<<ngrid, num_threads>>>(f1_gpu, f2_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu, mass_gpu, glm::f32vec3(1.0f, 0.0f, 0.0f)*Cl/Ct);
+    LB_stream<<<ngrid, num_threads>>>(f1_gpu, f2_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu, mass_gpu, glm::f32vec3(0.1f, 0.0f, 0.0f)/(Cl/Ct));
     
-    if(flag_FSI)
-    {
-        LB_compute_local_params<<<ngrid, num_threads>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu);
-        advect_velocity(num_threads, num_mesh);
-        cal_force_spread_RB(num_threads, num_mesh, Ct);
-    }
-    LB_add_gravity<<<ngrid, num_threads>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, cell_type_gpu);
+    // if(flag_FSI)
+    // {
+    //     LB_compute_local_params<<<ngrid, num_threads>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu);
+    //     advect_velocity(num_threads, num_mesh);
+    //     cal_force_spread_RB(num_threads, num_mesh, Ct);
+    // }
+    // LB_add_gravity<<<ngrid, num_threads>>>(Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, cell_type_gpu);
     
     LB_compute_local_params<<<ngrid, num_threads>>>(f1_gpu, Fx_gpu, Fy_gpu, Fz_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu, cell_type_gpu);
     
-    IF_stream_mass_transfer<<<ngrid, num_threads>>>(f1_gpu, f2_gpu, rho_gpu, cell_type_gpu, mass_gpu, delMass);
-    IF_cell_update_mass<<<ngrid, num_threads>>>(rho_gpu, mass_gpu, delMass, cell_type_gpu);
-    IF_update_cell_type<<<ngrid, num_threads>>>(rho_gpu, mass_gpu, cell_type_gpu);
-    IF_filled_nb_flag_update<<<ngrid, num_threads>>>(cell_type_gpu);
-    IF_filled_nb_DF_update<<<ngrid, num_threads>>>(cell_type_gpu, f1_gpu, rho_gpu, ux_gpu, uy_gpu,uz_gpu, mass_gpu);
-    IF_empty_nb_flag_update<<<ngrid, num_threads>>>(cell_type_gpu);
-    checkCudaErrors(cudaMemset((void*)(delMass), 0, mem_size_scalar));
-    IF_distribute_excess_mass<<<ngrid, num_threads>>>(mass_gpu, rho_gpu, cell_type_gpu, delMass);
-    IF_collect_fluid_mass<<<ngrid, num_threads>>>(mass_gpu, cell_type_gpu, delMass, rho_gpu);
-    checkCudaErrors(cudaMemset ((void*)(delMass), 0, mem_size_scalar));
+    // IF_stream_mass_transfer<<<ngrid, num_threads>>>(f1_gpu, f2_gpu, rho_gpu, cell_type_gpu, mass_gpu, delMass);
+    // IF_cell_update_mass<<<ngrid, num_threads>>>(rho_gpu, mass_gpu, delMass, cell_type_gpu);
+    // IF_update_cell_type<<<ngrid, num_threads>>>(rho_gpu, mass_gpu, cell_type_gpu);
+    // IF_filled_nb_flag_update<<<ngrid, num_threads>>>(cell_type_gpu);
+    // IF_filled_nb_DF_update<<<ngrid, num_threads>>>(cell_type_gpu, f1_gpu, rho_gpu, ux_gpu, uy_gpu,uz_gpu, mass_gpu);
+    // IF_empty_nb_flag_update<<<ngrid, num_threads>>>(cell_type_gpu);
+    // checkCudaErrors(cudaMemset((void*)(delMass), 0, mem_size_scalar));
+    // IF_distribute_excess_mass<<<ngrid, num_threads>>>(mass_gpu, rho_gpu, cell_type_gpu, delMass);
+    // IF_collect_fluid_mass<<<ngrid, num_threads>>>(mass_gpu, cell_type_gpu, delMass, rho_gpu);
+    // checkCudaErrors(cudaMemset ((void*)(delMass), 0, mem_size_scalar));
 
     LB_compute_equi_distribution<<<ngrid, num_threads>>>(rho_gpu, ux_gpu, uy_gpu, uz_gpu, feq_gpu, cell_type_gpu);
     LB_compute_stress<<<ngrid, num_threads>>>(source_term_gpu, f1_gpu, feq_gpu, strain_rate_gpu, cell_type_gpu);
@@ -1074,15 +1075,15 @@ __host__ void LB_simulate_RB(int NX, int NY, int NZ, float Ct, void (*cal_force_
     LB_collide<<<ngrid, num_threads>>>(f1_gpu, f2_gpu, feq_gpu, source_term_gpu, strain_rate_gpu, cell_type_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
     
-    printf("After update neighbours mass cells\n");
-    LB_reset_max();
-    update_max_params<<<ngrid, num_threads>>>(Fx_gpu, Fy_gpu, Fz_gpu, cell_type_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
-    update_total_mass<<<ngrid, num_threads>>>(mass_gpu, cell_type_gpu);
-    checkCudaErrors(cudaDeviceSynchronize());
-    check_max_params<<<1,1>>>();
+    // printf("After update neighbours mass cells\n");
+    // LB_reset_max();
+    // update_max_params<<<ngrid, num_threads>>>(Fx_gpu, Fy_gpu, Fz_gpu, cell_type_gpu, rho_gpu, ux_gpu, uy_gpu, uz_gpu);
+    // update_total_mass<<<ngrid, num_threads>>>(mass_gpu, cell_type_gpu);
+    // checkCudaErrors(cudaDeviceSynchronize());
+    // check_max_params<<<1,1>>>();
     // checkCudaErrors(cudaMemcpy((void*)(temp_cell_type_gpu), (cell_type_gpu), mem_size_scalar,  cudaMemcpyDeviceToHost));
 
     copy_cell_type<<<ngrid, num_threads>>>(temp_cell_type_gpu, cell_type_gpu);
     checkCudaErrors(cudaDeviceSynchronize());
-    printf("\n");
+    // printf("\n");
 }

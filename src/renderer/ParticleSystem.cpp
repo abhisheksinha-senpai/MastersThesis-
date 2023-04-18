@@ -50,7 +50,7 @@ void ParticleSystem::update_particles(int NX, int NY, int NZ, float *mass, float
         int loc = (int)(x+y*NX+z*NX*NY);
         float vel = glm::length(glm::f32vec3(ux[loc], uy[loc], uz[loc]));
         // fluid[i].Color = glm::vec4(((unsigned int)mass[loc] == HOST_INTERFACE), ((unsigned int)mass[loc] == HOST_FLUID), ((unsigned int)mass[loc] == HOST_EMPTY), ((unsigned int)mass[loc] == (HOST_INTERFACE)) || ((unsigned int)mass[loc] == (HOST_FLUID)) || ((unsigned int)mass[loc] == (HOST_EMPTY))||((unsigned int)mass[loc] == (HOST_OBSTACLE)));
-        fluid[i].Color = glm::vec4(100.0f*((ux[loc])), 100.0f*((uy[loc])), 100.0f*(abs(uz[loc])), ((unsigned int)mass[loc] == (HOST_INTERFACE)) || ((unsigned int)mass[loc] == (HOST_FLUID)));
+        fluid[i].Color = glm::vec4(100.0f*ux[loc], 0.0f, 100.0f*uy[loc], ((unsigned int)mass[loc] == (HOST_INTERFACE)) || ((unsigned int)mass[loc] == (HOST_FLUID)));
         // fluid[i].Color = glm::f32vec4(mass[loc], mass[loc], mass[loc], mass[loc]/2.0f);
         // fluid[i].Color = glm::vec4(ux[loc]/uy[loc], ux[loc], uy[loc], ((int)mass[loc] & (FLUID|INTERFACE)));
         // if((int)mass[loc] & INTERFACE && ((int)y == 3*NY/4) && ((int)x == 4*NX/8))

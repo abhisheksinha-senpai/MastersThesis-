@@ -40,4 +40,6 @@ __host__ void displayDomain(Geometry &fluidDomain);
 
 __host__ void scene_cleanup(Vertex **nodeLists, Vertex **nodeData, int *vertex_size_per_mesh,
                             float *rho, float *ux, float *uy, float *uz);
+
+__host__ void logger(const char* name,float *cpu_dst, float *gpu_src, unsigned int n, int NX, int NY, int NZ, float Cl, float Ct);
 #endif
